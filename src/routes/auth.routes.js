@@ -22,6 +22,16 @@ router.post('/register', async (req, res) => {
             return res.status(400).json({ message: 'El email ya está registrado' });
         }
 
+        // Verificar si el username ya existe
+        const usernameExist = await pool.query(
+            'SELECT 1 FROM usuarios WHERE username = $1',
+            [username]
+        );
+
+        if (usernameExist.rows.length > 0) {
+            return res.status(400).json({ message: 'El username ya está en uso' });
+        }
+
         const hashedPassword = await bcrypt.hash(password, 10);
         const token = crypto.randomBytes(32).toString('hex');
 
@@ -38,9 +48,18 @@ router.post('/register', async (req, res) => {
 
     } catch (error) {
 
-        if (err.code === '23505') {
-            return res.status(400).json({ message: 'El correo ya está registrado' });
+        if (error.code === '23505') {
+            if (error.constraint === 'usuarios_email_unique') {
+                return res.status(400).json({ message: 'El email ya está registrado' });
+            }
+            if (error.constraint === 'usuarios_username_unique') {
+                return res.status(400).json({ message: 'El username ya está en uso' });
+            }
         }
+
+        // if (err.code === '23505') {
+        //     return res.status(400).json({ message: 'El correo ya está registrado' });
+        // }
         res.status(500).json({ message: 'Error al registrar usuario' });
     }
 });

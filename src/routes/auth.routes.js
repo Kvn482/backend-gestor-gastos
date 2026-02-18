@@ -11,7 +11,7 @@ const router = express.Router();
 // REGISTRO
 router.post('/register', async (req, res) => {
     try {
-        const { nombre, apellido, username, email, password } = req.body;
+        const { nombre, username, email, password } = req.body;
 
         const userExist = await pool.query(
             'SELECT * FROM usuarios WHERE email = $1',
@@ -37,9 +37,9 @@ router.post('/register', async (req, res) => {
 
         await pool.query(
             `INSERT INTO usuarios 
-      (nombre, apellido, username, email, password, verification_token, status) 
-      VALUES ($1,$2,$3,$4,$5,$6,0)`,
-            [nombre, apellido, username, email, hashedPassword, token]
+            (nombre, username, email, password, verification_token, status) 
+            VALUES ($1,$2,$3,$4,$5,0)`,
+            [nombre, username, email, hashedPassword, token]
         );
 
         await sendVerificationEmail(email, token);

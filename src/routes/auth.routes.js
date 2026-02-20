@@ -6,10 +6,16 @@ const pool = require('../db');
 const { sendVerificationEmail } = require('../services/mail.service');
 
 const router = express.Router();
+const rateLimit = require('express-rate-limit');
 
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 10, // máximo 10 registros por IP
+  message: 'Demasiados intentos. Intenta más tarde.'
+});
 
 // REGISTRO
-router.post('/register', async (req, res) => {
+router.post('/register', limiter, async (req, res) => {
     try {
         const { nombre, username, email, password } = req.body;
 
@@ -24,7 +30,7 @@ router.post('/register', async (req, res) => {
 
         // Verificar si el username ya existe
         const usernameExist = await pool.query(
-            'SELECT 1 FROM usuarios WHERE username = $1',
+            'SELECT 1 FROM usuarios WHERE LOWER(username) = LOWER($1)',
             [username]
         );
 
@@ -42,9 +48,11 @@ router.post('/register', async (req, res) => {
             [nombre, username, email, hashedPassword, token]
         );
 
-        await sendVerificationEmail(email, token);
-
         res.json({ message: 'Usuario registrado. Revisa tu correo para verificar.' });
+
+        sendVerificationEmail(email, token)
+            .then(() => console.log('Email enviado'))
+            .catch(err => console.error('Error enviando email:', err));
 
     } catch (error) {
 
@@ -94,7 +102,7 @@ router.get('/verify/:token', async (req, res) => {
 
 
 // LOGIN
-router.post('/login', async (req, res) => {
+router.post('/login', limiter, async (req, res) => {
     try {
         const { email, password } = req.body;
 

@@ -9,9 +9,9 @@ const router = express.Router();
 const rateLimit = require('express-rate-limit');
 
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutos
-  max: 10, // máximo 10 registros por IP
-  message: 'Demasiados intentos. Intenta más tarde.'
+    windowMs: 15 * 60 * 1000, // 15 minutos
+    max: 10, // máximo 10 registros por IP
+    message: 'Demasiados intentos. Intenta más tarde.'
 });
 
 // REGISTRO
@@ -124,15 +124,22 @@ router.post('/login', limiter, async (req, res) => {
             return res.status(400).json({ message: 'Credenciales inválidas' });
         }
 
-        const token = jwt.sign(
+        const accessToken = jwt.sign(
             { id: user.id, email: user.email },
             process.env.JWT_SECRET,
             { expiresIn: '2h' }
         );
 
+        const refreshToken = jwt.sign(
+            { id: user.id },
+            process.env.JWT_REFRESH_SECRET,
+            { expiresIn: '7d' }
+        );
+
         res.json({
             message: 'Login exitoso',
-            token,
+            accessToken,
+            refreshToken,
             user: {
                 id: user.id,
                 nombre: user.nombre,
@@ -145,6 +152,28 @@ router.post('/login', limiter, async (req, res) => {
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Error en login' });
+    }
+});
+
+// REFRESH TOKEN
+router.post('/refresh', (req, res) => {
+    const { refreshToken } = req.body;
+
+    if (!refreshToken) return res.sendStatus(401);
+
+    try {
+        const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
+
+        const newAccessToken = jwt.sign(
+            { id: decoded.id },
+            process.env.JWT_SECRET,
+            { expiresIn: '7d' }
+        );
+
+        res.json({ accessToken: newAccessToken });
+
+    } catch {
+        return res.sendStatus(403);
     }
 });
 

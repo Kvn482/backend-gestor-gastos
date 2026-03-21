@@ -125,13 +125,13 @@ router.post('/login', limiter, async (req, res) => {
         }
 
         const accessToken = jwt.sign(
-            { id: user.id, email: user.email },
+            { id: user.id, nombre: user.nombre, username: user.username, email: user.email },
             process.env.JWT_SECRET,
             { expiresIn: '2h' }
         );
 
         const refreshToken = jwt.sign(
-            { id: user.id },
+            { id: user.id, nombre: user.nombre, username: user.username, email: user.email },
             process.env.JWT_REFRESH_SECRET,
             { expiresIn: '7d' }
         );

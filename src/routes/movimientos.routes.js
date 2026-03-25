@@ -66,4 +66,52 @@ router.get('/balance-general', verifyToken, async (req, res) => {
     }
 })
 
+// Consultar categorías disponibles para el usuario
+router.get('/categorias', verifyToken, async (req, res) => {
+    const id_usuario = req.user.id
+
+    try {
+        const result = await pool.query(
+            `SELECT id, nombre AS categoria, id_usuario 
+                FROM categorias
+                WHERE status = 1 AND (id_usuario IS NULL OR id_usuario = $1)
+            `,
+            [id_usuario]
+        )
+
+        const data = result.rows
+
+        res.status(200).json(data)
+
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({
+            message: 'Error al consultar categorías'
+        })
+    }
+})
+
+// Consultar tipos de movimiento
+router.get('/tipos-movimiento', verifyToken, async (req, res) => {
+
+    try {
+        const result = await pool.query(
+            `SELECT id, nombre AS movimiento 
+                FROM tipos_movimiento
+                WHERE status = 1
+            `
+        )
+
+        const data = result.rows
+
+        res.status(200).json(data)
+
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({
+            message: 'Error al consultar tipos de movimiento'
+        })
+    }
+})
+
 module.exports = router

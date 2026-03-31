@@ -114,4 +114,34 @@ router.get('/tipos-movimiento', verifyToken, async (req, res) => {
     }
 })
 
+// Consultar últimos movimientos
+router.get('/ultimos-movimientos', verifyToken, async (req, res) => {
+
+    const id_usuario = req.user.id
+
+    try {
+        const result = await pool.query(
+            `SELECT m.id, m.monto, m.descripcion, m.id_tipo_movimiento, tmov.nombre AS tipo_movimiento, m.id_categoria, c.nombre AS categoria, m.fecha
+                FROM movimientos m
+                JOIN categorias c ON c.id = m.id_categoria AND c.status = 1
+                JOIN tipos_movimiento tmov ON tmov.id = m.id_tipo_movimiento
+                WHERE m.id_usuario = $1
+                ORDER BY m.created_at DESC
+                limit 5
+            `,
+            [id_usuario]
+        )
+
+        const data = result.rows
+
+        res.status(200).json(data)
+
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({
+            message: 'Error al consultar últimos movimientos'
+        })
+    }
+})
+
 module.exports = router

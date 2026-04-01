@@ -17,7 +17,7 @@ const limiter = rateLimit({
 // REGISTRO
 router.post('/register', limiter, async (req, res) => {
     try {
-        const { nombre, username, email, password } = req.body;
+        const { name, last_name, email, password } = req.body;
 
         const userExist = await pool.query(
             'SELECT * FROM usuarios WHERE email = $1',
@@ -28,24 +28,14 @@ router.post('/register', limiter, async (req, res) => {
             return res.status(400).json({ message: 'El email ya está registrado' });
         }
 
-        // Verificar si el username ya existe
-        const usernameExist = await pool.query(
-            'SELECT 1 FROM usuarios WHERE LOWER(username) = LOWER($1)',
-            [username]
-        );
-
-        if (usernameExist.rows.length > 0) {
-            return res.status(400).json({ message: 'El username ya está en uso' });
-        }
-
         const hashedPassword = await bcrypt.hash(password, 10);
         const token = crypto.randomBytes(32).toString('hex');
 
         await pool.query(
             `INSERT INTO usuarios 
-            (nombre, username, email, password, verification_token, status) 
+            (name, last_name, email, password, verification_token, status) 
             VALUES ($1,$2,$3,$4,$5,0)`,
-            [nombre, username, email, hashedPassword, token]
+            [name, last_name, email, hashedPassword, token]
         );
 
         res.json({ message: 'Usuario registrado. Revisa tu correo para verificar.' });
@@ -125,13 +115,13 @@ router.post('/login', limiter, async (req, res) => {
         }
 
         const accessToken = jwt.sign(
-            { id: user.id, nombre: user.nombre, username: user.username, email: user.email },
+            { id: user.id, nombre: user.name, apellido: user.last_name, email: user.email },
             process.env.JWT_SECRET,
             { expiresIn: '2h' }
         );
 
         const refreshToken = jwt.sign(
-            { id: user.id, nombre: user.nombre, username: user.username, email: user.email },
+            { id: user.id, nombre: user.name, apellido: user.last_name, email: user.email },
             process.env.JWT_REFRESH_SECRET,
             { expiresIn: '7d' }
         );
@@ -142,9 +132,8 @@ router.post('/login', limiter, async (req, res) => {
             refreshToken,
             user: {
                 id: user.id,
-                nombre: user.nombre,
-                apellido: user.apellido,
-                username: user.username,
+                nombre: user.name,
+                apellido: user.last_name,
                 email: user.email,
             },
         });

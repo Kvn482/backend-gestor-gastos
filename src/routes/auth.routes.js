@@ -45,6 +45,7 @@ router.post('/register', limiter, async (req, res) => {
             .catch(err => console.error('Error enviando email:', err));
 
     } catch (error) {
+        console.error('Error en registro:', error);
 
         if (error.code === '23505') {
             if (error.constraint === 'usuarios_email_unique') {

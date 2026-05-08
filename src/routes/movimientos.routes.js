@@ -121,13 +121,16 @@ router.get('/ultimos-movimientos', verifyToken, async (req, res) => {
 
     try {
         const result = await pool.query(
-            `SELECT m.id, m.monto, m.descripcion, m.id_tipo_movimiento, tmov.nombre AS tipo_movimiento, m.id_categoria, c.nombre AS categoria, m.fecha
+            `SELECT m.id, m.monto, m.descripcion, m.id_tipo_movimiento, tmov.nombre AS tipo_movimiento,
+                COALESCE(array_agg(e.nombre) FILTER (WHERE e.id IS NOT NULL), '{}') AS etiquetas, m.fecha
                 FROM movimientos m
-                JOIN categorias c ON c.id = m.id_categoria AND c.status = 1
                 JOIN tipos_movimiento tmov ON tmov.id = m.id_tipo_movimiento
+                LEFT JOIN movimiento_etiquetas me ON me.id_movimiento = m.id
+                LEFT JOIN etiquetas e ON e.id = me.id_etiqueta AND e.status = 1
                 WHERE m.id_usuario = $1
+                GROUP BY m.id, tmov.nombre
                 ORDER BY m.created_at DESC
-                limit 5
+                LIMIT 5
             `,
             [id_usuario]
         )

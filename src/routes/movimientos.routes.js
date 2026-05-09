@@ -7,24 +7,43 @@ const router = express.Router()
 // Crear movimiento
 router.post('/', verifyToken, async (req, res) => {
     const id_usuario = req.user.id
+    const client = await pool.connect()
 
     try {
-        const { categoria, descripcion, fecha, monto, tipoMovimiento } = req.body
+        const { etiquetas = [], descripcion, fecha, monto, tipoMovimiento } = req.body
 
-        await pool.query(
+        await client.query('BEGIN')
+
+        const result = await client.query(
             `INSERT INTO movimientos 
-            (id_usuario, id_tipo_movimiento, id_categoria, monto, descripcion, fecha) 
-            VALUES ($1,$2,$3,$4,$5,$6)`,
-            [id_usuario, tipoMovimiento, categoria, monto, descripcion, fecha]
+            (id_usuario, id_tipo_movimiento, monto, descripcion, fecha) 
+            VALUES ($1,$2,$3,$4,$5)
+            RETURNING id`,
+            [id_usuario, tipoMovimiento, monto, descripcion, fecha]
         )
+
+        const id_movimiento = result.rows[0].id
+
+        if (etiquetas.length > 0) {
+            const values = etiquetas.map((_, i) => `($1, $${i + 2})`).join(', ')
+            await client.query(
+                `INSERT INTO movimiento_etiquetas (id_movimiento, id_etiqueta) VALUES ${values}`,
+                [id_movimiento, ...etiquetas]
+            )
+        }
+
+        await client.query('COMMIT')
 
         res.status(201).json({ message: 'Movimiento Registrado' })
 
     } catch (error) {
+        await client.query('ROLLBACK')
         console.error(error)
         res.status(500).json({
             message: 'Error al registrar movimiento'
         })
+    } finally {
+        client.release()
     }
 })
 
@@ -66,14 +85,13 @@ router.get('/balance-general', verifyToken, async (req, res) => {
     }
 })
 
-// Consultar categorías disponibles para el usuario
-router.get('/categorias', verifyToken, async (req, res) => {
+// Consultar etiquetas disponibles para el usuario
+router.get('/etiquetas', verifyToken, async (req, res) => {
     const id_usuario = req.user.id
 
     try {
         const result = await pool.query(
-            `SELECT id, nombre AS categoria, id_usuario 
-                FROM categorias
+            `SELECT id, nombre, color FROM etiquetas
                 WHERE status = 1 AND (id_usuario IS NULL OR id_usuario = $1)
             `,
             [id_usuario]
@@ -86,7 +104,7 @@ router.get('/categorias', verifyToken, async (req, res) => {
     } catch (error) {
         console.error(error)
         res.status(500).json({
-            message: 'Error al consultar categorías'
+            message: 'Error al consultar etiquetas'
         })
     }
 })

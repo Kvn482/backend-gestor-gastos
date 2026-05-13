@@ -10,16 +10,16 @@ router.post('/', verifyToken, async (req, res) => {
     const client = await pool.connect()
 
     try {
-        const { etiquetas = [], descripcion, fecha, monto, tipoMovimiento } = req.body
+        const { etiquetas = [], descripcion, fecha, monto, tipoMovimiento, notas } = req.body
 
         await client.query('BEGIN')
 
         const result = await client.query(
             `INSERT INTO movimientos 
-            (id_usuario, id_tipo_movimiento, monto, descripcion, fecha) 
-            VALUES ($1,$2,$3,$4,$5)
+            (id_usuario, id_tipo_movimiento, monto, descripcion, fecha, notas) 
+            VALUES ($1,$2,$3,$4,$5,$6)
             RETURNING id`,
-            [id_usuario, tipoMovimiento, monto, descripcion, fecha]
+            [id_usuario, tipoMovimiento, monto, descripcion, fecha, notas]
         )
 
         const id_movimiento = result.rows[0].id
@@ -80,7 +80,7 @@ router.get('/balance-general', verifyToken, async (req, res) => {
     } catch (error) {
         console.error(error)
         res.status(500).json({
-            message: 'Error al registrar movimiento'
+            message: 'Error al consultar balance general'
         })
     }
 })
@@ -140,7 +140,7 @@ router.get('/ultimos-movimientos', verifyToken, async (req, res) => {
     try {
         const result = await pool.query(
             `SELECT m.id, m.monto, m.descripcion, m.id_tipo_movimiento, tmov.nombre AS tipo_movimiento,
-                COALESCE(array_agg(e.nombre) FILTER (WHERE e.id IS NOT NULL), '{}') AS etiquetas, m.fecha
+                COALESCE(array_agg(json_build_object('nombre', e.nombre, 'color', e.color)) FILTER (WHERE e.id IS NOT NULL), '{}') AS etiquetas, m.fecha, m.notas
                 FROM movimientos m
                 JOIN tipos_movimiento tmov ON tmov.id = m.id_tipo_movimiento
                 LEFT JOIN movimiento_etiquetas me ON me.id_movimiento = m.id

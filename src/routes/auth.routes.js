@@ -3,7 +3,7 @@ const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const pool = require('../db');
-const { sendVerificationEmail } = require('../services/mail.service');
+const { sendVerificationEmail, sendPasswordResetEmail } = require('../services/mail.service');
 
 const router = express.Router();
 const rateLimit = require('express-rate-limit');
@@ -142,6 +142,87 @@ router.post('/login', limiter, async (req, res) => {
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Error en login' });
+    }
+});
+
+// FORGOT PASSWORD
+router.post('/forgot-password', limiter, async (req, res) => {
+    try {
+        const { email } = req.body;
+
+        if (!email) {
+            return res.status(400).json({ message: 'El email es requerido' });
+        }
+
+        const result = await pool.query(
+            'SELECT id FROM usuarios WHERE email = $1 AND verificado = true AND status = 1',
+            [email]
+        );
+
+        // Respuesta genérica para no revelar si el email existe
+        if (result.rows.length === 0) {
+            return res.json({ message: 'Si el email está registrado, recibirás un enlace.' });
+        }
+
+        const token = crypto.randomBytes(32).toString('hex');
+        const expires = new Date(Date.now() + 60 * 60 * 1000); // 1 hora
+
+        await pool.query(
+            `UPDATE usuarios 
+             SET reset_token = $1, reset_token_expires = $2 
+             WHERE email = $3`,
+            [token, expires, email]
+        );
+
+        res.json({ message: 'Si el email está registrado, recibirás un enlace.' });
+
+        sendPasswordResetEmail(email, token)
+            .then(() => console.log('Email de recuperación enviado'))
+            .catch(err => console.error('Error enviando email de recuperación:', err));
+
+    } catch (error) {
+        console.error('Error en forgot-password:', error);
+        res.status(500).json({ message: 'Error al procesar la solicitud' });
+    }
+});
+
+// RESET PASSWORD
+router.post('/reset-password', async (req, res) => {
+    try {
+        const { token, password } = req.body;
+
+        if (!token || !password) {
+            return res.status(400).json({ message: 'Token y contraseña son requeridos' });
+        }
+
+        if (password.length < 6) {
+            return res.status(400).json({ message: 'La contraseña debe tener al menos 6 caracteres' });
+        }
+
+        const result = await pool.query(
+            `SELECT id FROM usuarios 
+             WHERE reset_token = $1 AND reset_token_expires > NOW()`,
+            [token]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(400).json({ message: 'El enlace ha expirado o no es válido' });
+        }
+
+        const hashedPassword = await bcrypt.hash(password, 10);
+
+        await pool.query(
+            `UPDATE usuarios 
+             SET password = $1, reset_token = NULL, reset_token_expires = NULL 
+             WHERE reset_token = $2`,
+            [hashedPassword, token]
+        );
+
+        res.json({ message: 'Contraseña restablecida correctamente' });
+
+    } catch (error) {
+        console.error('Error en reset-password:', error);
+        res.status(500).json({ message: 'Error al restablecer la contraseña' });
     }
 });
 

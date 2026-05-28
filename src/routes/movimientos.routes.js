@@ -144,7 +144,7 @@ router.get('/ultimos-movimientos', verifyToken, async (req, res) => {
                 FROM movimientos m
                 JOIN tipos_movimiento tmov ON tmov.id = m.id_tipo_movimiento
                 LEFT JOIN movimiento_etiquetas me ON me.id_movimiento = m.id
-                LEFT JOIN etiquetas e ON e.id = me.id_etiqueta AND e.status = 1
+                LEFT JOIN etiquetas e ON e.id = me.id_etiqueta
                 WHERE m.id_usuario = $1
                 GROUP BY m.id, tmov.nombre
                 ORDER BY m.created_at DESC
@@ -225,7 +225,7 @@ router.delete('/etiquetas/:id', verifyToken, async (req, res) => {
             return res.status(403).json({ message: 'No tienes permiso para eliminar esta etiqueta' })
         }
 
-        await pool.query('DELETE FROM etiquetas WHERE id = $1', [id])
+        await pool.query('UPDATE etiquetas SET status = 0 WHERE id = $1', [id])
 
         res.json({ message: 'Etiqueta eliminada correctamente' })
 

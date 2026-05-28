@@ -91,7 +91,7 @@ router.get('/etiquetas', verifyToken, async (req, res) => {
 
     try {
         const result = await pool.query(
-            `SELECT id, nombre, color FROM etiquetas
+            `SELECT id, id_usuario, nombre, color FROM etiquetas
                 WHERE status = 1 AND (id_usuario IS NULL OR id_usuario = $1)
             `,
             [id_usuario]

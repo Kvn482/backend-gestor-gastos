@@ -165,4 +165,74 @@ router.get('/ultimos-movimientos', verifyToken, async (req, res) => {
     }
 })
 
+// Crear etiqueta personalizada
+router.post('/etiquetas', verifyToken, async (req, res) => {
+    const id_usuario = req.user.id
+
+    try {
+        const { nombre, color } = req.body
+
+        if (!nombre || nombre.trim() === '') {
+            return res.status(400).json({ message: 'El nombre es requerido' })
+        }
+
+        const hexColorRegex = /^#[0-9A-Fa-f]{6}$/
+        if (!color || !hexColorRegex.test(color)) {
+            return res.status(400).json({ message: 'El color debe ser un hexadecimal válido (ej. #6366f1)' })
+        }
+
+        const existing = await pool.query(
+            'SELECT id FROM etiquetas WHERE nombre = $1 AND id_usuario = $2',
+            [nombre.trim(), id_usuario]
+        )
+
+        if (existing.rows.length > 0) {
+            return res.status(409).json({ message: 'Ya existe una etiqueta con ese nombre' })
+        }
+
+        const result = await pool.query(
+            `INSERT INTO etiquetas (nombre, color, id_usuario, status) VALUES ($1, $2, $3, 1)
+             RETURNING id, nombre, color, id_usuario`,
+            [nombre.trim(), color, id_usuario]
+        )
+
+        res.status(201).json(result.rows[0])
+
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ message: 'Error al crear etiqueta' })
+    }
+})
+
+// Eliminar etiqueta del usuario
+router.delete('/etiquetas/:id', verifyToken, async (req, res) => {
+    const id_usuario = req.user.id
+    const { id } = req.params
+
+    try {
+        const result = await pool.query(
+            'SELECT id, id_usuario FROM etiquetas WHERE id = $1',
+            [id]
+        )
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ message: 'Etiqueta no encontrada' })
+        }
+
+        const etiqueta = result.rows[0]
+
+        if (etiqueta.id_usuario === null || etiqueta.id_usuario !== id_usuario) {
+            return res.status(403).json({ message: 'No tienes permiso para eliminar esta etiqueta' })
+        }
+
+        await pool.query('DELETE FROM etiquetas WHERE id = $1', [id])
+
+        res.json({ message: 'Etiqueta eliminada correctamente' })
+
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ message: 'Error al eliminar etiqueta' })
+    }
+})
+
 module.exports = router

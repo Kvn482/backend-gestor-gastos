@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const pool = require('../db');
 const { sendVerificationEmail, sendPasswordResetEmail } = require('../services/mail.service');
+const verifyToken = require('../middleware/auth.middleware');
 
 const router = express.Router();
 const rateLimit = require('express-rate-limit');
@@ -223,6 +224,67 @@ router.post('/reset-password', async (req, res) => {
     } catch (error) {
         console.error('Error en reset-password:', error);
         res.status(500).json({ message: 'Error al restablecer la contraseña' });
+    }
+});
+
+// ACTUALIZAR PERFIL
+router.patch('/perfil', verifyToken, async (req, res) => {
+    try {
+        const { nombre, apellido } = req.body;
+
+        if (!nombre || !apellido || nombre.trim() === '' || apellido.trim() === '') {
+            return res.status(400).json({ message: 'Nombre y apellido son requeridos' });
+        }
+
+        await pool.query(
+            'UPDATE usuarios SET name = $1, last_name = $2 WHERE id = $3',
+            [nombre.trim(), apellido.trim(), req.user.id]
+        );
+
+        res.json({ message: 'Perfil actualizado correctamente' });
+
+    } catch (error) {
+        console.error('Error en actualizar perfil:', error);
+        res.status(500).json({ message: 'Error al actualizar perfil' });
+    }
+});
+
+// CAMBIAR CONTRASEÑA
+router.patch('/cambiar-contrasena', verifyToken, async (req, res) => {
+    try {
+        const { contrasenaActual, nuevaContrasena } = req.body;
+
+        if (!contrasenaActual || !nuevaContrasena) {
+            return res.status(400).json({ message: 'Contraseña actual y nueva son requeridas' });
+        }
+
+        if (nuevaContrasena.length < 6) {
+            return res.status(400).json({ message: 'La nueva contraseña debe tener al menos 6 caracteres' });
+        }
+
+        const result = await pool.query(
+            'SELECT password FROM usuarios WHERE id = $1',
+            [req.user.id]
+        );
+
+        const match = await bcrypt.compare(contrasenaActual, result.rows[0].password);
+
+        if (!match) {
+            return res.status(400).json({ message: 'La contraseña actual es incorrecta' });
+        }
+
+        const hashedPassword = await bcrypt.hash(nuevaContrasena, 10);
+
+        await pool.query(
+            'UPDATE usuarios SET password = $1 WHERE id = $2',
+            [hashedPassword, req.user.id]
+        );
+
+        res.json({ message: 'Contraseña actualizada correctamente' });
+
+    } catch (error) {
+        console.error('Error en cambiar-contrasena:', error);
+        res.status(500).json({ message: 'Error al cambiar contraseña' });
     }
 });
 

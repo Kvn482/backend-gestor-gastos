@@ -229,7 +229,7 @@ router.post('/reset-password', async (req, res) => {
 });
 
 // ACTUALIZAR PERFIL
-router.patch('/perfil', verifyToken, upload.single('avatar'), async (req, res) => {
+router.patch('/perfil', verifyToken, async (req, res) => {
     try {
         const { nombre, apellido } = req.body;
 
@@ -237,25 +237,38 @@ router.patch('/perfil', verifyToken, upload.single('avatar'), async (req, res) =
             return res.status(400).json({ message: 'Nombre y apellido son requeridos' });
         }
 
-        const avatarUrl = req.file ? req.file.path : null;
-
         await pool.query(
-            `UPDATE usuarios 
-             SET name = $1, last_name = $2${avatarUrl ? ', avatar_url = $4' : ''} 
-             WHERE id = $3`,
-            avatarUrl
-                ? [nombre.trim(), apellido.trim(), req.user.id, avatarUrl]
-                : [nombre.trim(), apellido.trim(), req.user.id]
+            'UPDATE usuarios SET name = $1, last_name = $2 WHERE id = $3',
+            [nombre.trim(), apellido.trim(), req.user.id]
         );
 
-        res.json({
-            message: 'Perfil actualizado correctamente',
-            ...(avatarUrl && { avatar_url: avatarUrl }),
-        });
+        res.json({ message: 'Perfil actualizado correctamente' });
 
     } catch (error) {
         console.error('Error en actualizar perfil:', error);
         res.status(500).json({ message: 'Error al actualizar perfil' });
+    }
+});
+
+// ACTUALIZAR AVATAR
+router.patch('/perfil/avatar', verifyToken, upload.single('avatar'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ message: 'No se envió ninguna imagen' });
+        }
+
+        const avatarUrl = req.file.path;
+
+        await pool.query(
+            'UPDATE usuarios SET avatar_url = $1 WHERE id = $2',
+            [avatarUrl, req.user.id]
+        );
+
+        res.json({ message: 'Avatar actualizado correctamente', avatar_url: avatarUrl });
+
+    } catch (error) {
+        console.error('Error en actualizar avatar:', error);
+        res.status(500).json({ message: 'Error al actualizar avatar' });
     }
 });
 
@@ -295,6 +308,34 @@ router.patch('/cambiar-contrasena', verifyToken, async (req, res) => {
     } catch (error) {
         console.error('Error en cambiar-contrasena:', error);
         res.status(500).json({ message: 'Error al cambiar contraseña' });
+    }
+});
+
+// OBTENER PERFIL
+router.get('/perfil', verifyToken, async (req, res) => {
+    try {
+        const result = await pool.query(
+            'SELECT id, name, last_name, email, avatar_url FROM usuarios WHERE id = $1',
+            [req.user.id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ message: 'Usuario no encontrado' });
+        }
+
+        const user = result.rows[0];
+
+        res.json({
+            id: user.id,
+            nombre: user.name,
+            apellido: user.last_name,
+            email: user.email,
+            avatar_url: user.avatar_url,
+        });
+
+    } catch (error) {
+        console.error('Error en obtener perfil:', error);
+        res.status(500).json({ message: 'Error al obtener perfil' });
     }
 });
 

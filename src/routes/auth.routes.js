@@ -5,6 +5,7 @@ const jwt = require('jsonwebtoken');
 const pool = require('../db');
 const { sendVerificationEmail, sendPasswordResetEmail } = require('../services/mail.service');
 const verifyToken = require('../middleware/auth.middleware');
+const { upload, cloudinary } = require('../services/upload.service');
 
 const router = express.Router();
 const rateLimit = require('express-rate-limit');
@@ -228,7 +229,7 @@ router.post('/reset-password', async (req, res) => {
 });
 
 // ACTUALIZAR PERFIL
-router.patch('/perfil', verifyToken, async (req, res) => {
+router.patch('/perfil', verifyToken, upload.single('avatar'), async (req, res) => {
     try {
         const { nombre, apellido } = req.body;
 
@@ -236,12 +237,21 @@ router.patch('/perfil', verifyToken, async (req, res) => {
             return res.status(400).json({ message: 'Nombre y apellido son requeridos' });
         }
 
+        const avatarUrl = req.file ? req.file.path : null;
+
         await pool.query(
-            'UPDATE usuarios SET name = $1, last_name = $2 WHERE id = $3',
-            [nombre.trim(), apellido.trim(), req.user.id]
+            `UPDATE usuarios 
+             SET name = $1, last_name = $2${avatarUrl ? ', avatar_url = $4' : ''} 
+             WHERE id = $3`,
+            avatarUrl
+                ? [nombre.trim(), apellido.trim(), req.user.id, avatarUrl]
+                : [nombre.trim(), apellido.trim(), req.user.id]
         );
 
-        res.json({ message: 'Perfil actualizado correctamente' });
+        res.json({
+            message: 'Perfil actualizado correctamente',
+            ...(avatarUrl && { avatar_url: avatarUrl }),
+        });
 
     } catch (error) {
         console.error('Error en actualizar perfil:', error);

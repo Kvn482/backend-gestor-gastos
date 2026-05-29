@@ -9,7 +9,7 @@ const transporter = nodemailer.createTransport({
 });
 
 async function sendVerificationEmail(email, token) {
-  const link = `http://localhost:3000/api/auth/verify/${token}`;
+  const link = `${process.env.BACKEND_URL}/api/auth/verify/${token}`;
 
   await transporter.sendMail({
     from: process.env.MAIL_USER,
@@ -24,7 +24,7 @@ async function sendVerificationEmail(email, token) {
 }
 
 async function sendPasswordResetEmail(email, token) {
-  const link = `http://localhost:4200/reset-password?token=${token}`;
+  const link = `${process.env.FRONTEND_URL}/reset-password?token=${token}`;
 
   await transporter.sendMail({
     from: process.env.MAIL_USER,

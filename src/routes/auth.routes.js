@@ -31,7 +31,7 @@ router.post('/register', limiter, async (req, res) => {
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
-        const token = crypto.randomBytes(32).toString('hex');
+        const token = jwt.sign({ email }, process.env.JWT_SECRET, { expiresIn: '1h' });
 
         await pool.query(
             `INSERT INTO usuarios 
@@ -68,28 +68,28 @@ router.post('/register', limiter, async (req, res) => {
 
 // VERIFICAR CORREO
 router.get('/verify/:token', async (req, res) => {
+    const { token } = req.params;
+    
     try {
-        const { token } = req.params;
-
-        const result = await pool.query(
+        // La librería verifica automáticamente si el token es auténtico y si NO ha expirado
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        
+        // Si llegamos aquí, el token es válido y no ha expirado
+        await pool.query(
             `UPDATE usuarios
-       SET verificado = true,
-           status = 1,
-           verification_token = NULL
-       WHERE verification_token = $1
-       RETURNING *`,
+            SET verificado = true,
+                status = 1,
+                verification_token = NULL
+            WHERE verification_token = $1
+            RETURNING *`,
             [token]
         );
 
-        if (result.rowCount === 0) {
-            return res.status(400).send('Token inválido o expirado');
-        }
-
-        res.send('Cuenta verificada correctamente');
+        res.send('<h1>Cuenta verificada con éxito</h1><p>Ya puedes iniciar sesión.</p>');
 
     } catch (error) {
-        console.error(error);
-        res.status(500).send('Error al verificar');
+        // Si el token expiró o fue manipulado, caerá aquí
+        res.status(400).send('<h1>Error de verificación</h1><p>El enlace ha expirado o no es válido. Intenta solicitar uno nuevo.</p>');
     }
 });
 
@@ -340,25 +340,72 @@ router.get('/perfil', verifyToken, async (req, res) => {
 });
 
 // REFRESH TOKEN
-router.post('/refresh', (req, res) => {
-    const { refreshToken } = req.body;
+router.post('/refresh', async (req, res) => {
+    const { refreshToken } = req.body
 
-    if (!refreshToken) return res.sendStatus(401);
+    if (!refreshToken) return res.sendStatus(401)
 
     try {
-        const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
+        const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET)
 
         const newAccessToken = jwt.sign(
-            { id: decoded.id },
+            { id: decoded.id, nombre: decoded.nombre, apellido: decoded.apellido, email: decoded.email },
             process.env.JWT_SECRET,
+            { expiresIn: '2h' }
+        )
+
+        const newRefreshToken = jwt.sign(
+            { id: decoded.id, nombre: decoded.nombre, apellido: decoded.apellido, email: decoded.email },
+            process.env.JWT_REFRESH_SECRET,
             { expiresIn: '7d' }
+        )
+
+        res.json({
+            message: 'Token refrescado exitosamente',
+            accessToken: newAccessToken,
+            refreshToken: newRefreshToken,
+            user: {
+                id: decoded.id,
+                nombre: decoded.nombre,
+                apellido: decoded.apellido,
+                email: decoded.email,
+            }
+        })
+
+    } catch (error) {
+        console.error(error)
+        return res.sendStatus(403)
+    }
+})
+
+// Envio de email de verificación al registrar un nuevo usuario
+router.post('/resend-activation', limiter, async (req, res) => {
+    try {
+        const { email } = req.body;
+
+        const result = await pool.query(
+            `SELECT * FROM usuarios 
+            WHERE email = $1 AND verificado = false`,
+            [email]
         );
 
-        res.json({ accessToken: newAccessToken });
+        if (result.rows.length === 0) {
+            return res.status(202).json({ message: 'Correo no encontrado o ya verificado' });
+        }
 
-    } catch {
-        return res.sendStatus(403);
+        // En lugar de crypto, firmas un token con expiración de 1 hora (1h)
+        const token = jwt.sign({ email }, process.env.JWT_SECRET, { expiresIn: '1h' });
+
+        res.json({ message: 'Correo Enviado. Revisa tu correo para verificar.' });
+
+        sendVerificationEmail(email, token)
+            .then(() => console.log('Email enviado'))
+            .catch(err => console.error('Error enviando email:', err))
+
+    } catch (error) {
+        console.error('Error en enviar email de verificación:', error);
+        res.status(500).json({ message: 'Error al enviar email de verificación' })
     }
-});
+})
 
 module.exports = router;

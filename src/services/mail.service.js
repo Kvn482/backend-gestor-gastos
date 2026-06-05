@@ -14,11 +14,16 @@ async function sendVerificationEmail(email, token) {
   await transporter.sendMail({
     from: process.env.MAIL_USER,
     to: email,
-    subject: 'Verifica tu cuenta',
+    subject: 'Verifica tu cuenta - Monetra',
     html: `
-      <h2>Verifica tu cuenta</h2>
-      <p>Haz click en el siguiente enlace:</p>
-      <a href="${link}">${link}</a>
+      <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto;">
+        <h2 style="color: #4f46e5;">Verifica tu cuenta</h2>
+        <p>Gracias por registrarte. Haz click en el siguiente enlace para verificar tu cuenta.</p>
+        <a href="${link}" style="display:inline-block;margin:16px 0;padding:12px 24px;background:#4f46e5;color:#fff;text-decoration:none;border-radius:8px;font-weight:bold;">
+          Verificar cuenta
+        </a>
+        <p style="color:#888;font-size:13px;">Si no creaste una cuenta, ignora este correo.</p>
+      </div>
     `,
   });
 }

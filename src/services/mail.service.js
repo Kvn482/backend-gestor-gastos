@@ -13,17 +13,20 @@ const nodemailer = require('nodemailer');
 
 const transporter = nodemailer.createTransport({
   host: 'smtp.gmail.com',
-  port: 587,             // Cambiado de 465 a 587
-  secure: false,         // false para puerto 587 (usa STARTTLS)
+  port: 587,
+  secure: false, // false para usar STARTTLS en el puerto 587
+  connectionTimeout: 10000, // 10 segundos máximo para conectar
+  greetingTimeout: 10000,   // 10 segundos máximo para el saludo SMTP
   auth: {
     user: process.env.MAIL_USER,
-    pass: process.env.MAIL_PASS, 
+    pass: process.env.MAIL_PASS, // Tu contraseña de aplicación de 16 letras
   },
   tls: {
-    rejectUnauthorized: false // Esto evita que Railway bloquee la conexión por temas de certificados
+    // Esto obliga a TLS a ignorar problemas de red local del contenedor
+    rejectUnauthorized: false,
+    minVersion: 'TLSv1.2'
   }
 });
-
 async function sendVerificationEmail(email, token) {
   const link = `${process.env.BACKEND_URL}/api/auth/verify/${token}`;
 

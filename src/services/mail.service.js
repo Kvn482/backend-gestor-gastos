@@ -22,8 +22,17 @@ async function sendVerificationEmail(email, token) {
     `,
   };
 
-  // Usamos la API HTTP de SendGrid, Railway no puede bloquear esto
-  await sgMail.send(msg);
+  // Envolvemos en try/catch para atrapar el error 403
+  try {
+    await sgMail.send(msg);
+    console.log('Email de verificación enviado con éxito');
+  } catch (error) {
+    console.error('Error enviando email de verificación:', error);
+    if (error.response && error.response.body) {
+      console.log("DETALLE COMPLETO DE SENDGRID:", JSON.stringify(error.response.body, null, 2));
+    }
+    throw error; // Mantenemos el throw para que tu controlador sepa que falló
+  }
 }
 
 async function sendPasswordResetEmail(email, token) {
@@ -46,7 +55,17 @@ async function sendPasswordResetEmail(email, token) {
     `,
   };
 
-  await sgMail.send(msg);
+  // Envolvemos en try/catch para atrapar el error 403
+  try {
+    await sgMail.send(msg);
+    console.log('Email de recuperación enviado con éxito');
+  } catch (error) {
+    console.error('Error enviando email de recuperación:', error);
+    if (error.response && error.response.body) {
+      console.log("DETALLE COMPLETO DE SENDGRID:", JSON.stringify(error.response.body, null, 2));
+    }
+    throw error; // Mantenemos el throw para que tu controlador sepa que falló
+  }
 }
 
 module.exports = { sendVerificationEmail, sendPasswordResetEmail };

@@ -1,38 +1,14 @@
-const nodemailer = require('nodemailer');
+const sgMail = require('@sendgrid/mail');
 
-// const transporter = nodemailer.createTransport({
-//   service: 'gmail',
-//   auth: {
-//     user: process.env.MAIL_USER,
-//     pass: process.env.MAIL_PASS,
-//   },
-// });
+// Inicializamos SendGrid usando la API Key que configures en Railway
+sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
-// const dns = require('dns');
-// dns.setDefaultResultOrder('ipv4first');
-
-const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 587,
-  secure: false, // false para usar STARTTLS en el puerto 587
-  connectionTimeout: 10000, // 10 segundos máximo para conectar
-  greetingTimeout: 10000,   // 10 segundos máximo para el saludo SMTP
-  auth: {
-    user: process.env.MAIL_USER,
-    pass: process.env.MAIL_PASS, // Tu contraseña de aplicación de 16 letras
-  },
-  tls: {
-    // Esto obliga a TLS a ignorar problemas de red local del contenedor
-    rejectUnauthorized: false,
-    minVersion: 'TLSv1.2'
-  }
-});
 async function sendVerificationEmail(email, token) {
   const link = `${process.env.BACKEND_URL}/api/auth/verify/${token}`;
 
-  await transporter.sendMail({
-    from: process.env.MAIL_USER,
-    to: email,
+  const msg = {
+    to: email,                     // Destinatario dinámico (cualquier usuario)
+    from: process.env.MAIL_USER,   // Tu correo de Gmail (el que vas a verificar en SendGrid)
     subject: 'Verifica tu cuenta - Monetra',
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto;">
@@ -44,15 +20,18 @@ async function sendVerificationEmail(email, token) {
         <p style="color:#888;font-size:13px;">Si no creaste una cuenta, ignora este correo.</p>
       </div>
     `,
-  });
+  };
+
+  // Usamos la API HTTP de SendGrid, Railway no puede bloquear esto
+  await sgMail.send(msg);
 }
 
 async function sendPasswordResetEmail(email, token) {
   const link = `${process.env.FRONTEND_URL}/reset-password?token=${token}`;
 
-  await transporter.sendMail({
-    from: process.env.MAIL_USER,
+  const msg = {
     to: email,
+    from: process.env.MAIL_USER,   // Tu correo de Gmail (el que vas a verificar en SendGrid)
     subject: 'Restablecer contraseña - Monetra',
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto;">
@@ -65,7 +44,9 @@ async function sendPasswordResetEmail(email, token) {
         <p style="color:#888;font-size:13px;">Si no solicitaste esto, ignora este correo. Tu contraseña no cambiará.</p>
       </div>
     `,
-  });
+  };
+
+  await sgMail.send(msg);
 }
 
 module.exports = { sendVerificationEmail, sendPasswordResetEmail };

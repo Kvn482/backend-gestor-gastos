@@ -396,6 +396,13 @@ router.post('/resend-activation', limiter, async (req, res) => {
         // En lugar de crypto, firmas un token con expiración de 1 hora (1h)
         const token = jwt.sign({ email }, process.env.JWT_SECRET, { expiresIn: '1h' });
 
+        await pool.query(
+            `UPDATE usuarios 
+             SET verification_token = $1 
+             WHERE email = $2`,
+            [token, email]
+        );
+
         res.json({ message: 'Correo Enviado. Revisa tu correo para verificar.' });
 
         sendVerificationEmail(email, token)

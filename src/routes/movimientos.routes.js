@@ -6,6 +6,7 @@ const router = express.Router()
 
 // Crear movimiento
 router.post('/', verifyToken, async (req, res) => {
+    // req.user.id ahora contiene el UUID del usuario autenticado (ej: 'f47ac10b-...')
     const id_usuario = req.user.id
     const client = await pool.connect()
 
@@ -14,16 +15,19 @@ router.post('/', verifyToken, async (req, res) => {
 
         await client.query('BEGIN')
 
+        // Insertamos el movimiento. PostgreSQL validará automáticamente que id_usuario sea un UUID existente.
         const result = await client.query(
             `INSERT INTO movimientos 
             (id_usuario, id_tipo_movimiento, monto, descripcion, fecha, notas) 
-            VALUES ($1,$2,$3,$4,$5,$6)
+            VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING id`,
             [id_usuario, tipoMovimiento, monto, descripcion, fecha, notas]
         )
 
         const id_movimiento = result.rows[0].id
 
+        // La inserción de etiquetas asociadas se mantiene igual, 
+        // ya que id_movimiento sigue siendo un entero SERIAL en tu esquema.
         if (etiquetas.length > 0) {
             const values = etiquetas.map((_, i) => `($1, $${i + 2})`).join(', ')
             await client.query(
@@ -38,7 +42,7 @@ router.post('/', verifyToken, async (req, res) => {
 
     } catch (error) {
         await client.query('ROLLBACK')
-        console.error(error)
+        console.error('Error al registrar movimiento:', error)
         res.status(500).json({
             message: 'Error al registrar movimiento'
         })

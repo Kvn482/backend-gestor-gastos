@@ -31,12 +31,15 @@ router.post('/register', limiter, async (req, res) => {
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
+        
+        // El token de verificación sigue usando el email, esto no cambia
         const token = jwt.sign({ email }, process.env.JWT_SECRET, { expiresIn: '1h' });
 
+        // Omitimos la columna "id" para que PostgreSQL genere el UUID automáticamente con uuid_generate_v4()
         await pool.query(
             `INSERT INTO usuarios 
             (name, last_name, email, password, verification_token, status) 
-            VALUES ($1,$2,$3,$4,$5,0)`,
+            VALUES ($1, $2, $3, $4, $5, 0)`,
             [name, last_name, email, hashedPassword, token]
         );
 
@@ -49,18 +52,14 @@ router.post('/register', limiter, async (req, res) => {
     } catch (error) {
         console.error('Error en registro:', error);
 
+        // Control de errores de Postgres para llaves duplicadas (Código 23505)
         if (error.code === '23505') {
-            if (error.constraint === 'usuarios_email_unique') {
+            // Ajustado al nombre real de tu UNIQUE CONSTRAINT en PostgreSQL
+            if (error.constraint === 'usuarios_email_key') {
                 return res.status(400).json({ message: 'El email ya está registrado' });
-            }
-            if (error.constraint === 'usuarios_username_unique') {
-                return res.status(400).json({ message: 'El username ya está en uso' });
             }
         }
 
-        // if (err.code === '23505') {
-        //     return res.status(400).json({ message: 'El correo ya está registrado' });
-        // }
         res.status(500).json({ message: 'Error al registrar usuario' });
     }
 });
@@ -99,9 +98,10 @@ router.post('/login', limiter, async (req, res) => {
     try {
         const { email, password } = req.body;
 
+        // Buscamos al usuario por email
         const result = await pool.query(
             `SELECT * FROM usuarios 
-       WHERE email = $1 AND verificado = true AND status = 1`,
+             WHERE email = $1 AND verificado = true AND status = 1`,
             [email]
         );
 
@@ -111,12 +111,15 @@ router.post('/login', limiter, async (req, res) => {
 
         const user = result.rows[0];
 
+        // Validamos la contraseña
         const match = await bcrypt.compare(password, user.password);
 
         if (!match) {
             return res.status(400).json({ message: 'Credenciales inválidas' });
         }
 
+        // Estructuramos los Payloads de los JWT. 
+        // user.id ahora es un string con formato UUID (ej: 'f47ac10b-58cc-4372-a567-0e02b2c3d479')
         const accessToken = jwt.sign(
             { id: user.id, nombre: user.name, apellido: user.last_name, email: user.email },
             process.env.JWT_SECRET,
@@ -129,6 +132,7 @@ router.post('/login', limiter, async (req, res) => {
             { expiresIn: '7d' }
         );
 
+        // Enviamos la respuesta al frontend
         res.json({
             message: 'Login exitoso',
             accessToken,
@@ -142,7 +146,7 @@ router.post('/login', limiter, async (req, res) => {
         });
 
     } catch (error) {
-        console.error(error);
+        console.error('Error en login:', error);
         res.status(500).json({ message: 'Error en login' });
     }
 });

@@ -8,6 +8,7 @@ dns.setDefaultResultOrder('ipv4first');
 
 const authRoutes = require('./routes/auth.routes');
 const movRoutes = require('./routes/movimientos.routes');
+const cuentasRoutes = require('./routes/cuentas.routes');
 
 const app = express();
 
@@ -28,6 +29,7 @@ app.use(express.json());
 // 4. Rutas de tu API
 app.use('/api/auth', authRoutes);
 app.use('/api/movimientos', movRoutes);
+app.use('/api/cuentas', cuentasRoutes);
 
 // 5. Inicialización del servidor
 const PORT = process.env.PORT || 3000;

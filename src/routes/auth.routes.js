@@ -68,27 +68,49 @@ router.post('/register', limiter, async (req, res) => {
 // VERIFICAR CORREO
 router.get('/verify/:token', async (req, res) => {
     const { token } = req.params;
+    const client = await pool.connect();
     
     try {
-        // La librería verifica automáticamente si el token es auténtico y si NO ha expirado
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        await client.query('BEGIN');
         
-        // Si llegamos aquí, el token es válido y no ha expirado
-        await pool.query(
+        const userResult = await client.query(
             `UPDATE usuarios
             SET verificado = true,
                 status = 1,
                 verification_token = NULL
             WHERE verification_token = $1
-            RETURNING *`,
+            RETURNING id`,
             [token]
         );
 
-        res.send('<h1>Cuenta verificada con éxito</h1><p>Ya puedes iniciar sesión.</p>');
+        if (userResult.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(400).send('<h1>Error de verificación</h1><p>El enlace ya fue utilizado o no es válido.</p>');
+        }
+
+        const usuarioId = userResult.rows[0].id;
+
+        await client.query(
+            `INSERT INTO "cuentas" ("id_usuario", "nombre", "tipo", "saldo_inicial", "saldo_actual", "color")
+            VALUES ($1, $2, $3, $4, $5, $6)`,
+            [usuarioId, 'Efectivo', 'EFECTIVO', 0.00, 0.00, '#22c55e'] // Verde efectivo por defecto
+        );
+
+        await client.query('COMMIT');
+
+        res.send('<h1>Cuenta verificada con éxito</h1><p>Ya puedes iniciar sesión en Monetra.</p>');
 
     } catch (error) {
+        // Si algo falla dentro del bloque try, deshacemos cualquier cambio en la BD
+        await client.query('ROLLBACK');
+        console.error('Error en la verificación:', error);
+        
         // Si el token expiró o fue manipulado, caerá aquí
         res.status(400).send('<h1>Error de verificación</h1><p>El enlace ha expirado o no es válido. Intenta solicitar uno nuevo.</p>');
+    } finally {
+        // CRÍTICO: Liberamos el cliente para no bloquear conexiones en el pool
+        client.release();
     }
 });
 

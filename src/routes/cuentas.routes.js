@@ -72,4 +72,31 @@ router.post('/', verifyToken, async (req, res) => {
     }
 });
 
+// Consultar últimos movimientos
+router.get('/', verifyToken, async (req, res) => {
+
+    const id_usuario = req.user.id
+
+    try {
+        const result = await pool.query(
+            `SELECT id, nombre, tipo, saldo_actual, color 
+                FROM cuentas
+                WHERE status = 1
+                AND id_usuario = $1
+            `,
+            [id_usuario]
+        )
+
+        const data = result.rows
+
+        res.status(200).json(data)
+
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({
+            message: 'Error al consultar últimos movimientos'
+        })
+    }
+})
+
 module.exports = router

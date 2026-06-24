@@ -29,15 +29,10 @@ router.post('/', verifyToken, async (req, res) => {
         // Actualizamos el saldo de la cuenta dentro de la misma transacción.
         const cuentaActualizada = await client.query(
             `UPDATE cuentas
-                SET saldo_actual = COALESCE(saldo_actual, 0) +
-                    CASE
-                        WHEN $2::integer = 1 THEN $1::numeric
-                        WHEN $2::integer = 2 THEN -($1::numeric)
-                        ELSE 0::numeric
-                    END
-                WHERE id = $3
-                RETURNING saldo_actual`,
-            [monto, tipoMovimiento, cuenta]
+            SET saldo_actual = COALESCE(saldo_actual, 0) + $1::numeric
+            WHERE id = $2
+            RETURNING saldo_actual`,
+            [monto, cuenta]
         )
 
         if (cuentaActualizada.rowCount === 0) {
@@ -81,12 +76,7 @@ router.get('/balance-general', verifyToken, async (req, res) => {
             `SELECT 
                 COALESCE(SUM(CASE WHEN id_tipo_movimiento = 1 THEN monto ELSE 0 END), 0) AS ingresos,
                 COALESCE(SUM(CASE WHEN id_tipo_movimiento = 2 THEN monto ELSE 0 END), 0) AS egresos,
-                COALESCE(SUM(
-                    CASE 
-                    WHEN id_tipo_movimiento = 1 THEN monto 
-                    ELSE -monto 
-                    END
-                ), 0) AS balance
+                COALESCE(SUM(monto), 0) AS balance
                 FROM movimientos
                 WHERE id_usuario = $1
                 AND fecha <= CURRENT_DATE

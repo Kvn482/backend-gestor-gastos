@@ -72,14 +72,14 @@ router.post('/', verifyToken, async (req, res) => {
     }
 });
 
-// Consultar últimos movimientos
+// Consultar todas las cuentas activas de un usuario
 router.get('/', verifyToken, async (req, res) => {
 
     const id_usuario = req.user.id
 
     try {
         const result = await pool.query(
-            `SELECT id, nombre, tipo, saldo_actual, color 
+            `SELECT id, nombre, tipo, saldo_actual, color, status
                 FROM cuentas
                 WHERE status = 1
                 AND id_usuario = $1
@@ -94,7 +94,8 @@ router.get('/', verifyToken, async (req, res) => {
     } catch (error) {
         console.error(error)
         res.status(500).json({
-            message: 'Error al consultar últimos movimientos'
+            message: 'Error al consultar las cuentas activas del usuario',
+            error: error.message
         })
     }
 })

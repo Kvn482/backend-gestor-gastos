@@ -11,20 +11,41 @@ router.post('/', verifyToken, async (req, res) => {
     const client = await pool.connect()
 
     try {
-        const { etiquetas = [], descripcion, fecha, monto, tipoMovimiento, notas } = req.body
+        const { etiquetas = [], descripcion, fecha, monto, tipoMovimiento, notas, cuenta } = req.body
 
         await client.query('BEGIN')
 
         // Insertamos el movimiento. PostgreSQL validará automáticamente que id_usuario sea un UUID existente.
         const result = await client.query(
             `INSERT INTO movimientos 
-            (id_usuario, id_tipo_movimiento, monto, descripcion, fecha, notas) 
-            VALUES ($1, $2, $3, $4, $5, $6)
+            (id_usuario, id_tipo_movimiento, monto, descripcion, fecha, notas, id_cuenta) 
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING id`,
-            [id_usuario, tipoMovimiento, monto, descripcion, fecha, notas]
+            [id_usuario, tipoMovimiento, monto, descripcion, fecha, notas, cuenta]
         )
 
         const id_movimiento = result.rows[0].id
+
+        // Actualizamos el saldo de la cuenta dentro de la misma transacción.
+        const cuentaActualizada = await client.query(
+            `UPDATE cuentas
+                SET saldo_actual = COALESCE(saldo_actual, 0) +
+                    CASE
+                        WHEN $2::integer = 1 THEN $1::numeric
+                        WHEN $2::integer = 2 THEN -($1::numeric)
+                        ELSE 0::numeric
+                    END
+                WHERE id = $3
+                RETURNING saldo_actual`,
+            [monto, tipoMovimiento, cuenta]
+        )
+
+        if (cuentaActualizada.rowCount === 0) {
+            await client.query('ROLLBACK')
+            return res.status(404).json({
+                message: 'Cuenta no encontrada o inactiva'
+            })
+        }
 
         // La inserción de etiquetas asociadas se mantiene igual, 
         // ya que id_movimiento sigue siendo un entero SERIAL en tu esquema.
@@ -144,13 +165,14 @@ router.get('/ultimos-movimientos', verifyToken, async (req, res) => {
     try {
         const result = await pool.query(
             `SELECT m.id, m.monto, m.descripcion, m.id_tipo_movimiento, tmov.nombre AS tipo_movimiento,
-                COALESCE(array_agg(json_build_object('id', e.id, 'nombre', e.nombre, 'color', e.color)) FILTER (WHERE e.id IS NOT NULL), '{}') AS etiquetas, m.fecha, m.notas
+                COALESCE(array_agg(json_build_object('id', e.id, 'nombre', e.nombre, 'color', e.color)) FILTER (WHERE e.id IS NOT NULL), '{}') AS etiquetas, m.fecha, m.notas, m.id_cuenta, c.nombre AS cuenta, c.tipo AS tipo_cuenta
                 FROM movimientos m
                 JOIN tipos_movimiento tmov ON tmov.id = m.id_tipo_movimiento
                 LEFT JOIN movimiento_etiquetas me ON me.id_movimiento = m.id
                 LEFT JOIN etiquetas e ON e.id = me.id_etiqueta
+                JOIN cuentas c ON c.id = m.id_cuenta
                 WHERE m.id_usuario = $1
-                GROUP BY m.id, tmov.nombre
+                GROUP BY m.id, tmov.nombre, c.nombre, c.tipo
                 ORDER BY m.created_at DESC
                 LIMIT 5
             `,

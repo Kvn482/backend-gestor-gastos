@@ -102,7 +102,7 @@ router.get('/activas', verifyToken, async (req, res) => {
 
     try {
         const result = await pool.query(
-            `SELECT id, nombre, tipo 
+            `SELECT id, nombre, tipo, saldo_actual 
              FROM cuentas
              WHERE id_usuario = $1 AND status = 1
              ORDER BY nombre ASC`,
@@ -148,6 +148,98 @@ router.patch('/update-status', verifyToken, async (req, res) => {
             error: error.message
         })
 
+    } finally {
+        client.release()
+    }
+})
+
+// Transferir saldo entre cuentas del mismo usuario
+router.post('/transferir-saldo', verifyToken, async (req, res) => {
+    const id_usuario = req.user.id
+    const client = await pool.connect()
+
+    try {
+        const { descripcion, notas, monto, id_cuenta_destino, id_cuenta_origen } = req.body
+        const etiquetas = [6] // Etiqueta predeterminada para transferencias
+
+        await client.query('BEGIN')
+
+        // 1. ACTUALIZAR SALDO - CUENTA ORIGEN (Resta)
+        const cuentaActualizada = await client.query(
+            `UPDATE cuentas
+            SET saldo_actual = COALESCE(saldo_actual, 0) - $1::numeric
+            WHERE id = $2 AND id_usuario = $3
+            RETURNING saldo_actual`,
+            [monto, id_cuenta_origen, id_usuario]
+        )
+
+        if (cuentaActualizada.rowCount === 0) {
+            await client.query('ROLLBACK')
+            return res.status(404).json({
+                message: 'Cuenta origen no encontrada o no pertenece al usuario'
+            })
+        }
+
+        // 2. ACTUALIZAR SALDO - CUENTA DESTINO (Suma)
+        const cuentaDestinoActualizada = await client.query(
+            `UPDATE cuentas
+            SET saldo_actual = COALESCE(saldo_actual, 0) + $1::numeric
+            WHERE id = $2 AND id_usuario = $3
+            RETURNING saldo_actual`,
+            [monto, id_cuenta_destino, id_usuario]
+        )
+
+        if (cuentaDestinoActualizada.rowCount === 0) {
+            await client.query('ROLLBACK')
+            return res.status(404).json({
+                message: 'Cuenta destino no encontrada o no pertenece al usuario'
+            })
+        }
+
+        // 3. INSERTAR MOVIMIENTO 1: EGRESO (Desde la cuenta origen hacia la destino)
+        // Nota: Cambié GETDATE() por CURRENT_DATE que es nativo de Postgres
+        const resultEgreso = await client.query(
+            `INSERT INTO movimientos 
+            (id_usuario, id_tipo_movimiento, monto, descripcion, fecha, notas, id_cuenta, id_cuenta_destino) 
+            VALUES ($1, $2, $3, $4, CURRENT_DATE, $5, $6, $7)
+            RETURNING id`,
+            [id_usuario, 2, monto * -1, descripcion, notas, id_cuenta_origen, id_cuenta_destino] // Supongamos 2 = Egreso por transferencia
+        )
+        const id_movimiento_egreso = resultEgreso.rows[0].id
+
+        // 4. INSERTAR MOVIMIENTO 2: INGRESO (En la cuenta destino viniendo desde la origen)
+        const resultIngreso = await client.query(
+            `INSERT INTO movimientos 
+            (id_usuario, id_tipo_movimiento, monto, descripcion, fecha, notas, id_cuenta, id_cuenta_destino) 
+            VALUES ($1, $2, $3, $4, CURRENT_DATE, $5, $6, $7)
+            RETURNING id`,
+            [id_usuario, 1, monto, descripcion, notas, id_cuenta_destino, id_cuenta_origen] // Supongamos 1 = Ingreso por transferencia
+        )
+        const id_movimiento_ingreso = resultIngreso.rows[0].id
+
+        // 5. INSERTAR ETIQUETAS (Para ambos movimientos si aplica)
+        if (etiquetas.length > 0) {
+            // Unimos los IDs de ambos movimientos para etiquetarlos de un solo golpe
+            const movimientosAEtiquetar = [id_movimiento_egreso, id_movimiento_ingreso]
+            
+            for (const id_mov_id of movimientosAEtiquetar) {
+                const values = etiquetas.map((_, i) => `($1, $${i + 2})`).join(', ')
+                await client.query(
+                    `INSERT INTO movimiento_etiquetas (id_movimiento, id_etiqueta) VALUES ${values}`,
+                    [id_mov_id, ...etiquetas]
+                )
+            }
+        }
+
+        await client.query('COMMIT')
+        res.status(201).json({ message: 'Transferencia realizada con éxito' })
+
+    } catch (error) {
+        await client.query('ROLLBACK')
+        console.error('Error al registrar transferencia:', error)
+        res.status(500).json({
+            message: 'Error al registrar transferencia en el servidor'
+        })
     } finally {
         client.release()
     }

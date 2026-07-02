@@ -246,4 +246,57 @@ router.post('/transferir-saldo', verifyToken, async (req, res) => {
     }
 })
 
+// Editar cuenta
+router.patch('/edit/:id', verifyToken, async (req, res) => {
+    const { id } = req.params
+    const { nombre, tipo, color, limite_credito, dia_corte, dia_limite_pago } = req.body
+    
+    const usuario_id = req.user?.id
+
+    if (!usuario_id) {
+        return res.status(401).json({ message: 'Usuario no autenticado o token inválido.' })
+    }
+
+    const client = await pool.connect()
+
+    try {
+        await client.query('BEGIN')
+
+        const existeNombre = await client.query(
+            `SELECT id FROM cuentas WHERE LOWER("nombre") = LOWER($1) AND id_usuario = $2 AND id <> $3`,
+            [nombre, usuario_id, id]
+        )
+
+        if (existeNombre.rows.length > 0) {
+            await client.query('ROLLBACK')
+            return res.status(400).json({
+                message: 'Ya tienes otra cuenta registrada con ese nombre.'
+            })
+        }
+
+        await client.query(
+            `UPDATE cuentas SET nombre = $1, tipo = $2, color = $3, limite_credito = $4, dia_corte = $5, dia_limite_pago = $6 WHERE id = $7`,
+            [nombre, tipo, color, limite_credito, dia_corte, dia_limite_pago, id]
+        )
+
+        await client.query('COMMIT')
+
+        return res.status(200).json({
+            message: 'Cuenta actualizada con éxito.'
+        })
+
+    } catch (error) {
+        await client.query('ROLLBACK')
+        
+        console.error(error)
+        return res.status(500).json({
+            message: 'Error al actualizar la cuenta',
+            error: error.message
+        })
+
+    } finally {
+        client.release()
+    }
+})
+
 module.exports = router

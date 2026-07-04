@@ -155,7 +155,7 @@ router.get('/ultimos-movimientos', verifyToken, async (req, res) => {
     try {
         const result = await pool.query(
             `SELECT m.id, m.monto, m.descripcion, m.id_tipo_movimiento, tmov.nombre AS tipo_movimiento,
-                COALESCE(array_agg(json_build_object('id', e.id, 'nombre', e.nombre, 'color', e.color)) FILTER (WHERE e.id IS NOT NULL), '{}') AS etiquetas, m.fecha, m.notas, m.id_cuenta, c.nombre AS cuenta, c.tipo AS tipo_cuenta
+                COALESCE(array_agg(json_build_object('id', e.id, 'nombre', e.nombre, 'color', e.color)) FILTER (WHERE e.id IS NOT NULL), '{}') AS etiquetas, TO_CHAR(m.fecha, 'YYYY-MM-DD') AS fecha, m.notas, m.id_cuenta, c.nombre AS cuenta, c.tipo AS tipo_cuenta
                 FROM movimientos m
                 JOIN tipos_movimiento tmov ON tmov.id = m.id_tipo_movimiento
                 LEFT JOIN movimiento_etiquetas me ON me.id_movimiento = m.id
@@ -260,7 +260,7 @@ router.get('/cuenta/:id', verifyToken, async (req, res) => {
     try {
         const result = await pool.query(
             `SELECT m.id, m.monto, m.descripcion, m.id_tipo_movimiento, tmov.nombre AS tipo_movimiento,
-                COALESCE(array_agg(json_build_object('id', e.id, 'nombre', e.nombre, 'color', e.color)) FILTER (WHERE e.id IS NOT NULL), '{}') AS etiquetas, m.fecha, m.notas, m.id_cuenta, c.nombre AS cuenta, c.tipo AS tipo_cuenta
+                COALESCE(array_agg(json_build_object('id', e.id, 'nombre', e.nombre, 'color', e.color)) FILTER (WHERE e.id IS NOT NULL), '{}') AS etiquetas, TO_CHAR(m.fecha, 'YYYY-MM-DD') AS fecha, m.notas, m.id_cuenta, c.nombre AS cuenta, c.tipo AS tipo_cuenta
                 FROM movimientos m
                 JOIN tipos_movimiento tmov ON tmov.id = m.id_tipo_movimiento
                 LEFT JOIN movimiento_etiquetas me ON me.id_movimiento = m.id

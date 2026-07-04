@@ -160,8 +160,8 @@ router.post('/transferir-saldo', verifyToken, async (req, res) => {
     const client = await pool.connect()
 
     try {
-        const { descripcion, notas, monto, id_cuenta_destino, id_cuenta_origen } = req.body
-        const etiquetas = [6] // Etiqueta predeterminada para transferencias
+        const { descripcion, notas, monto, id_cuenta_destino, id_cuenta_origen, etiquetas } = req.body
+        //const etiquetas = [6] // Etiqueta predeterminada para transferencias
 
         await client.query('BEGIN')
 

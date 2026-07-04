@@ -251,4 +251,40 @@ router.delete('/etiquetas/:id', verifyToken, async (req, res) => {
     }
 })
 
+// Consultar últimos movimientos
+router.get('/cuenta/:id', verifyToken, async (req, res) => {
+
+    const id_usuario = req.user.id
+    const { id } = req.params
+
+    try {
+        const result = await pool.query(
+            `SELECT m.id, m.monto, m.descripcion, m.id_tipo_movimiento, tmov.nombre AS tipo_movimiento,
+                COALESCE(array_agg(json_build_object('id', e.id, 'nombre', e.nombre, 'color', e.color)) FILTER (WHERE e.id IS NOT NULL), '{}') AS etiquetas, m.fecha, m.notas, m.id_cuenta, c.nombre AS cuenta, c.tipo AS tipo_cuenta
+                FROM movimientos m
+                JOIN tipos_movimiento tmov ON tmov.id = m.id_tipo_movimiento
+                LEFT JOIN movimiento_etiquetas me ON me.id_movimiento = m.id
+                LEFT JOIN etiquetas e ON e.id = me.id_etiqueta
+                JOIN cuentas c ON c.id = m.id_cuenta
+                WHERE m.id_usuario = $1
+                AND m.id_cuenta = $2
+                GROUP BY m.id, tmov.nombre, c.nombre, c.tipo
+                ORDER BY m.created_at DESC
+                
+            `,
+            [id_usuario, id]
+        )
+
+        const data = result.rows
+
+        res.status(200).json(data)
+
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({
+            message: 'Error al consultar últimos movimientos'
+        })
+    }
+})
+
 module.exports = router

@@ -103,7 +103,7 @@ router.get('/activas', verifyToken, async (req, res) => {
 
     try {
         const result = await pool.query(
-            `SELECT id, nombre, tipo, saldo_actual 
+            `SELECT id, nombre, tipo, saldo_actual, limite_credito
              FROM cuentas
              WHERE id_usuario = $1 AND status = 1
              ORDER BY nombre ASC`,

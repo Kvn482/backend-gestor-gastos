@@ -4,6 +4,15 @@ const verifyToken = require('../middleware/auth.middleware')
 
 const router = express.Router()
 
+const normalizeDateOnly = (value) => {
+    if (typeof value === 'string') {
+        const match = value.match(/^(\d{4}-\d{2}-\d{2})/)
+        if (match) return match[1]
+    }
+
+    return value
+}
+
 // Crear movimiento
 router.post('/', verifyToken, async (req, res) => {
     // req.user.id ahora contiene el UUID del usuario autenticado (ej: 'f47ac10b-...')
@@ -12,6 +21,7 @@ router.post('/', verifyToken, async (req, res) => {
 
     try {
         const { etiquetas = [], descripcion, fecha, monto, tipoMovimiento, notas, cuenta } = req.body
+        const fechaMovimiento = normalizeDateOnly(fecha)
 
         await client.query('BEGIN')
 
@@ -21,7 +31,7 @@ router.post('/', verifyToken, async (req, res) => {
             (id_usuario, id_tipo_movimiento, monto, descripcion, fecha, notas, id_cuenta) 
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING id`,
-            [id_usuario, tipoMovimiento, monto, descripcion, fecha, notas, cuenta]
+            [id_usuario, tipoMovimiento, monto, descripcion, fechaMovimiento, notas, cuenta]
         )
 
         const id_movimiento = result.rows[0].id

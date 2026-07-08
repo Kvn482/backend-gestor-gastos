@@ -6,7 +6,7 @@ const router = express.Router()
 
 // CREAR UNA NUEVA CUENTA
 router.post('/', verifyToken, async (req, res) => {
-    const { nombre, tipo, saldo_inicial, color, id_tipo_movimiento, limite_credito, dia_corte, dia_limite_pago } = req.body
+    const { nombre, tipo, saldo_inicial, color, id_tipo_movimiento, limite_credito, dia_corte, dia_limite_pago, monto_limite } = req.body
     const id_usuario = req.user.id 
 
     if (!nombre || !tipo) {
@@ -32,10 +32,10 @@ router.post('/', verifyToken, async (req, res) => {
         const colorPorDefecto = color || '#a855f7'
 
         const nuevaCuentaResult = await client.query(
-            `INSERT INTO "cuentas" ("id_usuario", "nombre", "tipo", "saldo_inicial", "saldo_actual", "color", "limite_credito", "dia_corte", "dia_limite_pago")
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            `INSERT INTO "cuentas" ("id_usuario", "nombre", "tipo", "saldo_inicial", "saldo_actual", "color", "limite_credito", "dia_corte", "dia_limite_pago", "monto_limite")
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
              RETURNING *`,
-            [id_usuario, nombre, tipo.toUpperCase(), saldoInicialNumerico, saldoInicialNumerico, colorPorDefecto, limite_credito, dia_corte, dia_limite_pago]
+            [id_usuario, nombre, tipo.toUpperCase(), saldoInicialNumerico, saldoInicialNumerico, colorPorDefecto, limite_credito, dia_corte, dia_limite_pago, monto_limite]
         )
 
         const nuevaCuenta = nuevaCuentaResult.rows[0]
@@ -77,7 +77,7 @@ router.get('/', verifyToken, async (req, res) => {
 
     try {
         const result = await pool.query(
-            `SELECT id, nombre, tipo, saldo_actual, color, status, limite_credito, dia_corte, dia_limite_pago
+            `SELECT id, nombre, tipo, saldo_actual, color, status, limite_credito, dia_corte, dia_limite_pago, monto_limite
                 FROM cuentas
                 WHERE id_usuario = $1
                 ORDER BY created_at
@@ -103,7 +103,7 @@ router.get('/activas', verifyToken, async (req, res) => {
 
     try {
         const result = await pool.query(
-            `SELECT id, nombre, tipo, saldo_actual, limite_credito
+            `SELECT id, nombre, tipo, saldo_actual, limite_credito, monto_limite
              FROM cuentas
              WHERE id_usuario = $1 AND status = 1
              ORDER BY nombre ASC`,
@@ -249,7 +249,7 @@ router.post('/transferir-saldo', verifyToken, async (req, res) => {
 // Editar cuenta
 router.patch('/edit/:id', verifyToken, async (req, res) => {
     const { id } = req.params
-    const { nombre, tipo, color, limite_credito, dia_corte, dia_limite_pago } = req.body
+    const { nombre, tipo, color, limite_credito, dia_corte, dia_limite_pago, monto_limite } = req.body
     
     const usuario_id = req.user?.id
 
@@ -275,8 +275,8 @@ router.patch('/edit/:id', verifyToken, async (req, res) => {
         }
 
         await client.query(
-            `UPDATE cuentas SET nombre = $1, tipo = $2, color = $3, limite_credito = $4, dia_corte = $5, dia_limite_pago = $6 WHERE id = $7`,
-            [nombre, tipo, color, limite_credito, dia_corte, dia_limite_pago, id]
+            `UPDATE cuentas SET nombre = $1, tipo = $2, color = $3, limite_credito = $4, dia_corte = $5, dia_limite_pago = $6, monto_limite = $7 WHERE id = $8`,
+            [nombre, tipo, color, limite_credito, dia_corte, dia_limite_pago, monto_limite, id]
         )
 
         await client.query('COMMIT')

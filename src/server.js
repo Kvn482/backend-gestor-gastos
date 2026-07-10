@@ -73,6 +73,7 @@ app.use(express.json());
 
 // Ruta para comprobar que el backend está funcionando.
 app.get('/', (req, res) => {
+  console.log('Solicitud GET a la raíz recibida desde:', req.ip);
   res.status(200).json({
     ok: true,
     message: 'API de Monetra funcionando'

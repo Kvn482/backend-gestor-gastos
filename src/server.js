@@ -23,6 +23,8 @@ const corsOptions = {
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept']
 };
 
+console.log('FRONTEND_URL:', process.env.FRONTEND_URL);
+
 app.use(cors(corsOptions));
 app.use(express.json());
 

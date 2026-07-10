@@ -67,7 +67,7 @@ app.use(cors(corsOptions));
 
 // Responde explícitamente a todas las solicitudes preflight OPTIONS.
 // La expresión regular funciona tanto con Express 4 como con Express 5.
-app.options(/.*/, cors(corsOptions));
+// app.options(/.*/, cors(corsOptions));
 
 app.use(express.json());
 

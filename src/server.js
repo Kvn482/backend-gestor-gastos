@@ -26,6 +26,15 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json());
 
+app.get('/api/test', (req, res) => {
+  res.status(200).json({
+    ok: true,
+    message: 'Endpoint de prueba funcionando',
+    origin: req.headers.origin || null,
+    timestamp: new Date().toISOString()
+  });
+});
+
 // 4. Rutas de tu API
 app.use('/api/auth', authRoutes);
 app.use('/api/movimientos', movRoutes);

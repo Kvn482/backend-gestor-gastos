@@ -11,7 +11,7 @@ const cuentasRoutes = require('./routes/cuentas.routes');
 
 const app = express();
 
-app.set('trust proxy', 1);
+// app.set('trust proxy', 1);
 
 const allowedOrigins = [
   process.env.FRONTEND_URL?.trim(),

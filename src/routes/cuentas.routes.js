@@ -1,6 +1,7 @@
 const express = require('express')
 const pool = require('../db')
 const verifyToken = require('../middleware/auth.middleware')
+const { normalizeDateOnly, insertTransferenciaEtiquetas } = require('../services/movimientos.service')
 
 const router = express.Router()
 
@@ -299,4 +300,166 @@ router.patch('/edit/:id', verifyToken, async (req, res) => {
     }
 })
 
+// Editar transferencia anulando el par original y creando uno nuevo
+router.patch('/transferir-saldo/edit/:id', verifyToken, async (req, res) => {
+    const id_usuario = req.user.id
+    const { id } = req.params
+    const client = await pool.connect()
+
+    try {
+        const {
+            etiquetas = [],
+            descripcion,
+            fecha,
+            monto,
+            notas,
+            id_cuenta_destino,
+            id_cuenta_origen
+        } = req.body
+
+        if (!id_cuenta_origen || !id_cuenta_destino || monto === undefined || monto === null) {
+            return res.status(400).json({ message: 'Faltan datos para editar la transferencia' })
+        }
+
+        const montoNumerico = Math.abs(Number(monto))
+
+        if (Number.isNaN(montoNumerico) || montoNumerico <= 0) {
+            return res.status(400).json({ message: 'El monto debe ser mayor a 0' })
+        }
+
+        if (id_cuenta_origen === id_cuenta_destino) {
+            return res.status(400).json({ message: 'La cuenta origen y destino deben ser diferentes' })
+        }
+
+        await client.query('BEGIN')
+
+        const transferenciaResult = await client.query(
+            `SELECT id, id_usuario, id_tipo_movimiento, monto, descripcion, fecha, notas, id_cuenta, id_cuenta_destino, created_at
+             FROM movimientos
+             WHERE id = $1 AND id_usuario = $2 AND status = 1
+             FOR UPDATE`,
+            [id, id_usuario]
+        )
+
+        if (transferenciaResult.rows.length === 0) {
+            await client.query('ROLLBACK')
+            return res.status(404).json({ message: 'Transferencia no encontrada' })
+        }
+
+        const movimientoOriginal = transferenciaResult.rows[0]
+
+        if (movimientoOriginal.id_cuenta_destino === null) {
+            await client.query('ROLLBACK')
+            return res.status(400).json({ message: 'El movimiento indicado no pertenece a una transferencia' })
+        }
+
+        const contraparteResult = await client.query(
+            `SELECT id, id_usuario, id_tipo_movimiento, monto, descripcion, fecha, notas, id_cuenta, id_cuenta_destino, created_at
+             FROM movimientos
+             WHERE id <> $1
+             AND id_usuario = $2
+             AND status = 1
+             AND id_cuenta = $3
+             AND id_cuenta_destino = $4
+             AND monto = ($5::numeric * -1)
+             ORDER BY ABS(id - $6::int) ASC
+             LIMIT 1
+             FOR UPDATE`,
+            [
+                movimientoOriginal.id,
+                id_usuario,
+                movimientoOriginal.id_cuenta_destino,
+                movimientoOriginal.id_cuenta,
+                movimientoOriginal.monto,
+                movimientoOriginal.id
+            ]
+        )
+
+        if (contraparteResult.rows.length === 0) {
+            await client.query('ROLLBACK')
+            return res.status(404).json({ message: 'No se encontro el movimiento contraparte de la transferencia' })
+        }
+
+        const movimientosOriginales = [movimientoOriginal, contraparteResult.rows[0]]
+
+        for (const movimiento of movimientosOriginales) {
+            await client.query(
+                `UPDATE cuentas
+                 SET saldo_actual = COALESCE(saldo_actual, 0) - $1::numeric
+                 WHERE id = $2 AND id_usuario = $3`,
+                [movimiento.monto, movimiento.id_cuenta, id_usuario]
+            )
+        }
+
+        await client.query(
+            `UPDATE movimientos
+             SET status = 0
+             WHERE id = ANY($1::int[]) AND id_usuario = $2`,
+            [movimientosOriginales.map((movimiento) => movimiento.id), id_usuario]
+        )
+
+        const cuentasResult = await client.query(
+            `SELECT id FROM cuentas
+             WHERE id = ANY($1::uuid[]) AND id_usuario = $2 AND status = 1`,
+            [[id_cuenta_origen, id_cuenta_destino], id_usuario]
+        )
+
+        if (cuentasResult.rowCount !== 2) {
+            await client.query('ROLLBACK')
+            return res.status(404).json({ message: 'Cuenta origen o destino no encontrada' })
+        }
+
+        await client.query(
+            `UPDATE cuentas
+             SET saldo_actual = COALESCE(saldo_actual, 0) - $1::numeric
+             WHERE id = $2 AND id_usuario = $3`,
+            [montoNumerico, id_cuenta_origen, id_usuario]
+        )
+
+        await client.query(
+            `UPDATE cuentas
+             SET saldo_actual = COALESCE(saldo_actual, 0) + $1::numeric
+             WHERE id = $2 AND id_usuario = $3`,
+            [montoNumerico, id_cuenta_destino, id_usuario]
+        )
+
+        const fechaTransferencia = normalizeDateOnly(fecha || movimientoOriginal.fecha)
+
+        const resultEgreso = await client.query(
+            `INSERT INTO movimientos
+             (id_usuario, id_tipo_movimiento, monto, descripcion, fecha, notas, id_cuenta, id_cuenta_destino)
+             VALUES ($1, 2, $2, $3, $4, $5, $6, $7)
+             RETURNING id`,
+            [id_usuario, montoNumerico * -1, descripcion, fechaTransferencia, notas, id_cuenta_origen, id_cuenta_destino]
+        )
+
+        const resultIngreso = await client.query(
+            `INSERT INTO movimientos
+             (id_usuario, id_tipo_movimiento, monto, descripcion, fecha, notas, id_cuenta, id_cuenta_destino)
+             VALUES ($1, 1, $2, $3, $4, $5, $6, $7)
+             RETURNING id`,
+            [id_usuario, montoNumerico, descripcion, fechaTransferencia, notas, id_cuenta_destino, id_cuenta_origen]
+        )
+
+        const idsNuevosMovimientos = [resultEgreso.rows[0].id, resultIngreso.rows[0].id]
+
+        await insertTransferenciaEtiquetas(client, idsNuevosMovimientos, etiquetas)
+
+        await client.query('COMMIT')
+
+        res.status(200).json({
+            message: 'Transferencia actualizada con exito',
+            movimientos_creados: idsNuevosMovimientos
+        })
+
+    } catch (error) {
+        await client.query('ROLLBACK')
+        console.error('Error al editar transferencia:', error)
+        res.status(500).json({
+            message: 'Error al editar transferencia'
+        })
+    } finally {
+        client.release()
+    }
+})
 module.exports = router

@@ -1,33 +1,13 @@
 const express = require('express')
 const pool = require('../db')
 const verifyToken = require('../middleware/auth.middleware')
+const {
+    normalizeDateOnly,
+    insertMovimientoEtiquetas,
+    getMontoFirmado
+} = require('../services/movimientos.service')
 
 const router = express.Router()
-
-const normalizeDateOnly = (value) => {
-    if (typeof value === 'string') {
-        const match = value.match(/^(\d{4}-\d{2}-\d{2})/)
-        if (match) return match[1]
-    }
-
-    return value
-}
-
-const insertMovimientoEtiquetas = async (client, id_movimiento, etiquetas = []) => {
-    if (!Array.isArray(etiquetas) || etiquetas.length === 0) return
-
-    const values = etiquetas.map((_, i) => `($1, $${i + 2})`).join(', ')
-    await client.query(
-        `INSERT INTO movimiento_etiquetas (id_movimiento, id_etiqueta) VALUES ${values}`,
-        [id_movimiento, ...etiquetas]
-    )
-}
-
-const getMontoFirmado = (monto, id_tipo_movimiento) => {
-    const montoNumerico = Math.abs(Number(monto))
-
-    return Number(id_tipo_movimiento) === 2 ? montoNumerico * -1 : montoNumerico
-}
 
 // Crear movimiento
 router.post('/', verifyToken, async (req, res) => {
@@ -176,7 +156,7 @@ router.get('/ultimos-movimientos', verifyToken, async (req, res) => {
     try {
         const result = await pool.query(
             `SELECT m.id, m.monto, m.descripcion, m.id_tipo_movimiento, tmov.nombre AS tipo_movimiento,
-                COALESCE(array_agg(json_build_object('id', e.id, 'nombre', e.nombre, 'color', e.color)) FILTER (WHERE e.id IS NOT NULL), '{}') AS etiquetas, m.fecha, m.notas, m.id_cuenta, c.nombre AS cuenta, c.tipo AS tipo_cuenta
+                COALESCE(array_agg(json_build_object('id', e.id, 'nombre', e.nombre, 'color', e.color)) FILTER (WHERE e.id IS NOT NULL), '{}') AS etiquetas, m.fecha, m.notas, m.id_cuenta, m.id_cuenta_destino, c.nombre AS cuenta, c.tipo AS tipo_cuenta
                 FROM movimientos m
                 JOIN tipos_movimiento tmov ON tmov.id = m.id_tipo_movimiento
                 LEFT JOIN movimiento_etiquetas me ON me.id_movimiento = m.id
@@ -273,7 +253,7 @@ router.delete('/etiquetas/:id', verifyToken, async (req, res) => {
     }
 })
 
-// Consultar últimos movimientos
+// Consultar movimientos con base en la cuenta seleccionada
 router.get('/cuenta/:id', verifyToken, async (req, res) => {
 
     const id_usuario = req.user.id
@@ -282,7 +262,7 @@ router.get('/cuenta/:id', verifyToken, async (req, res) => {
     try {
         const result = await pool.query(
             `SELECT m.id, m.monto, m.descripcion, m.id_tipo_movimiento, tmov.nombre AS tipo_movimiento,
-                COALESCE(array_agg(json_build_object('id', e.id, 'nombre', e.nombre, 'color', e.color)) FILTER (WHERE e.id IS NOT NULL), '{}') AS etiquetas, m.fecha, m.notas, m.id_cuenta, c.nombre AS cuenta, c.tipo AS tipo_cuenta
+                COALESCE(array_agg(json_build_object('id', e.id, 'nombre', e.nombre, 'color', e.color)) FILTER (WHERE e.id IS NOT NULL), '{}') AS etiquetas, m.fecha, m.notas, m.id_cuenta, m.id_cuenta_destino, c.nombre AS cuenta, c.tipo AS tipo_cuenta
                 FROM movimientos m
                 JOIN tipos_movimiento tmov ON tmov.id = m.id_tipo_movimiento
                 LEFT JOIN movimiento_etiquetas me ON me.id_movimiento = m.id
@@ -305,31 +285,25 @@ router.get('/cuenta/:id', verifyToken, async (req, res) => {
     } catch (error) {
         console.error(error)
         res.status(500).json({
-            message: 'Error al consultar últimos movimientos'
+            message: 'Error al consultar movimientos de la cuenta'
         })
     }
 })
 
 // Editar movimiento anulando el registro original y creando uno nuevo
-const editarMovimiento = async (req, res) => {
+router.patch('/edit/:id', verifyToken, async (req, res) => {
     const id_usuario = req.user.id
     const { id } = req.params
     const client = await pool.connect()
 
     try {
-        const {
-            etiquetas = [],
-            descripcion,
-            fecha,
-            monto,
-            tipoMovimiento,
-            notas,
-            cuenta,
-            id_cuenta_origen,
-            id_cuenta_destino
-        } = req.body
+        const { etiquetas = [], descripcion, fecha, monto, tipoMovimiento, notas, cuenta } = req.body
 
-        if (monto === undefined || monto === null || Number.isNaN(Number(monto)) || Math.abs(Number(monto)) <= 0) {
+        if (!fecha || !tipoMovimiento || !cuenta || monto === undefined || monto === null) {
+            return res.status(400).json({ message: 'Faltan datos para editar el movimiento' })
+        }
+
+        if (Number.isNaN(Number(monto)) || Math.abs(Number(monto)) <= 0) {
             return res.status(400).json({ message: 'El monto debe ser mayor a 0' })
         }
 
@@ -349,166 +323,66 @@ const editarMovimiento = async (req, res) => {
         }
 
         const movimientoOriginal = movimientoResult.rows[0]
-        const esTransferenciaOriginal = movimientoOriginal.id_cuenta_destino !== null
-        let movimientosAnteriores = [movimientoOriginal]
 
-        if (esTransferenciaOriginal) {
-            const movimientoRelacionadoResult = await client.query(
-                `SELECT id, id_usuario, id_tipo_movimiento, monto, descripcion, fecha, notas, id_cuenta, id_cuenta_destino
-                 FROM movimientos
-                 WHERE id_usuario = $1
-                 AND id <> $2
-                 AND status = 1
-                 AND id_cuenta = $3
-                 AND id_cuenta_destino = $4
-                 AND ABS(monto) = ABS($5::numeric)
-                 AND fecha = $6
-                 ORDER BY ABS(id - $2::int) ASC
-                 LIMIT 1
-                 FOR UPDATE`,
-                [
-                    id_usuario,
-                    movimientoOriginal.id,
-                    movimientoOriginal.id_cuenta_destino,
-                    movimientoOriginal.id_cuenta,
-                    movimientoOriginal.monto,
-                    movimientoOriginal.fecha
-                ]
-            )
-
-            if (movimientoRelacionadoResult.rows.length === 0) {
-                await client.query('ROLLBACK')
-                return res.status(409).json({
-                    message: 'No se encontró el movimiento relacionado de la transferencia'
-                })
-            }
-
-            movimientosAnteriores = [movimientoOriginal, movimientoRelacionadoResult.rows[0]]
+        if (movimientoOriginal.id_cuenta_destino !== null) {
+            await client.query('ROLLBACK')
+            return res.status(400).json({
+                message: 'Este endpoint solo edita movimientos. Las transferencias deben editarse desde su propio flujo.'
+            })
         }
 
-        for (const movimiento of movimientosAnteriores) {
-            await client.query(
-                `UPDATE cuentas
-                 SET saldo_actual = COALESCE(saldo_actual, 0) - $1::numeric
-                 WHERE id = $2 AND id_usuario = $3`,
-                [movimiento.monto, movimiento.id_cuenta, id_usuario]
-            )
-        }
+        await client.query(
+            `UPDATE cuentas
+             SET saldo_actual = COALESCE(saldo_actual, 0) - $1::numeric
+             WHERE id = $2 AND id_usuario = $3`,
+            [movimientoOriginal.monto, movimientoOriginal.id_cuenta, id_usuario]
+        )
 
         await client.query(
             `UPDATE movimientos
              SET status = 0
-             WHERE id = ANY($1::int[]) AND id_usuario = $2`,
-            [movimientosAnteriores.map((movimiento) => movimiento.id), id_usuario]
+             WHERE id = $1 AND id_usuario = $2`,
+            [movimientoOriginal.id, id_usuario]
         )
 
-        const fechaMovimiento = normalizeDateOnly(fecha) || normalizeDateOnly(movimientoOriginal.fecha)
-        const descripcionMovimiento = descripcion ?? movimientoOriginal.descripcion
-        const notasMovimiento = notas ?? movimientoOriginal.notas
-        const nuevosMovimientos = []
+        const montoMovimiento = getMontoFirmado(monto, tipoMovimiento)
+        const fechaMovimiento = normalizeDateOnly(fecha)
 
-        if (esTransferenciaOriginal || id_cuenta_destino) {
-            const movimientoEgreso = movimientosAnteriores.find((movimiento) => Number(movimiento.monto) < 0)
-            const movimientoIngreso = movimientosAnteriores.find((movimiento) => Number(movimiento.monto) > 0)
-            const cuentaOrigen = id_cuenta_origen || cuenta || movimientoEgreso?.id_cuenta || movimientoOriginal.id_cuenta
-            const cuentaDestino = id_cuenta_destino || movimientoIngreso?.id_cuenta || movimientoOriginal.id_cuenta_destino
-            const montoTransferencia = Math.abs(Number(monto))
+        const cuentaResult = await client.query(
+            `SELECT id FROM cuentas
+             WHERE id = $1 AND id_usuario = $2 AND status = 1`,
+            [cuenta, id_usuario]
+        )
 
-            if (!cuentaOrigen || !cuentaDestino || String(cuentaOrigen) === String(cuentaDestino)) {
-                console.log(cuentaOrigen, cuentaDestino)
-                await client.query('ROLLBACK')
-                return res.status(400).json({
-                    message: 'La cuenta origen y destino son requeridas y deben ser diferentes'
-                })
-            }
-
-            const cuentasResult = await client.query(
-                `SELECT id FROM cuentas
-                 WHERE id_usuario = $1 AND status = 1 AND id = ANY($2::uuid[])`,
-                [id_usuario, [cuentaOrigen, cuentaDestino]]
-            )
-
-            if (cuentasResult.rowCount !== 2) {
-                await client.query('ROLLBACK')
-                return res.status(404).json({
-                    message: 'Cuenta origen o destino no encontrada'
-                })
-            }
-
-            await client.query(
-                `UPDATE cuentas
-                 SET saldo_actual = COALESCE(saldo_actual, 0) - $1::numeric
-                 WHERE id = $2 AND id_usuario = $3`,
-                [montoTransferencia, cuentaOrigen, id_usuario]
-            )
-
-            await client.query(
-                `UPDATE cuentas
-                 SET saldo_actual = COALESCE(saldo_actual, 0) + $1::numeric
-                 WHERE id = $2 AND id_usuario = $3`,
-                [montoTransferencia, cuentaDestino, id_usuario]
-            )
-
-            const egresoResult = await client.query(
-                `INSERT INTO movimientos
-                 (id_usuario, id_tipo_movimiento, monto, descripcion, fecha, notas, id_cuenta, id_cuenta_destino)
-                 VALUES ($1, 2, $2, $3, $4, $5, $6, $7)
-                 RETURNING id`,
-                [id_usuario, montoTransferencia * -1, descripcionMovimiento, fechaMovimiento, notasMovimiento, cuentaOrigen, cuentaDestino]
-            )
-
-            const ingresoResult = await client.query(
-                `INSERT INTO movimientos
-                 (id_usuario, id_tipo_movimiento, monto, descripcion, fecha, notas, id_cuenta, id_cuenta_destino)
-                 VALUES ($1, 1, $2, $3, $4, $5, $6, $7)
-                 RETURNING id`,
-                [id_usuario, montoTransferencia, descripcionMovimiento, fechaMovimiento, notasMovimiento, cuentaDestino, cuentaOrigen]
-            )
-
-            nuevosMovimientos.push(egresoResult.rows[0].id, ingresoResult.rows[0].id)
-        } else {
-            const cuentaMovimiento = cuenta || movimientoOriginal.id_cuenta
-            const tipoMovimientoNuevo = tipoMovimiento || movimientoOriginal.id_tipo_movimiento
-            const montoMovimiento = getMontoFirmado(monto, tipoMovimientoNuevo)
-
-            const cuentaResult = await client.query(
-                `SELECT id FROM cuentas
-                 WHERE id = $1 AND id_usuario = $2 AND status = 1`,
-                [cuentaMovimiento, id_usuario]
-            )
-
-            if (cuentaResult.rowCount === 0) {
-                await client.query('ROLLBACK')
-                return res.status(404).json({ message: 'Cuenta no encontrada' })
-            }
-
-            const nuevoMovimientoResult = await client.query(
-                `INSERT INTO movimientos
-                 (id_usuario, id_tipo_movimiento, monto, descripcion, fecha, notas, id_cuenta)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7)
-                 RETURNING id`,
-                [id_usuario, tipoMovimientoNuevo, montoMovimiento, descripcionMovimiento, fechaMovimiento, notasMovimiento, cuentaMovimiento]
-            )
-
-            await client.query(
-                `UPDATE cuentas
-                 SET saldo_actual = COALESCE(saldo_actual, 0) + $1::numeric
-                 WHERE id = $2 AND id_usuario = $3`,
-                [montoMovimiento, cuentaMovimiento, id_usuario]
-            )
-
-            nuevosMovimientos.push(nuevoMovimientoResult.rows[0].id)
+        if (cuentaResult.rowCount === 0) {
+            await client.query('ROLLBACK')
+            return res.status(404).json({ message: 'Cuenta no encontrada' })
         }
 
-        for (const id_movimiento of nuevosMovimientos) {
-            await insertMovimientoEtiquetas(client, id_movimiento, etiquetas)
-        }
+        const nuevoMovimientoResult = await client.query(
+            `INSERT INTO movimientos
+             (id_usuario, id_tipo_movimiento, monto, descripcion, fecha, notas, id_cuenta)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
+             RETURNING id`,
+            [id_usuario, tipoMovimiento, montoMovimiento, descripcion, fechaMovimiento, notas, cuenta]
+        )
+
+        const idNuevoMovimiento = nuevoMovimientoResult.rows[0].id
+
+        await client.query(
+            `UPDATE cuentas
+             SET saldo_actual = COALESCE(saldo_actual, 0) + $1::numeric
+             WHERE id = $2 AND id_usuario = $3`,
+            [montoMovimiento, cuenta, id_usuario]
+        )
+
+        await insertMovimientoEtiquetas(client, idNuevoMovimiento, etiquetas)
 
         await client.query('COMMIT')
 
         res.status(200).json({
-            message: 'Movimiento actualizado con éxito',
-            movimientos_creados: nuevosMovimientos
+            message: 'Movimiento actualizado con exito',
+            movimiento_creado: idNuevoMovimiento
         })
 
     } catch (error) {
@@ -520,9 +394,5 @@ const editarMovimiento = async (req, res) => {
     } finally {
         client.release()
     }
-}
-
-router.patch('/edit/:id', verifyToken, editarMovimiento)
-router.put('/edit/:id', verifyToken, editarMovimiento)
-
-module.exports = router
+})
+module.exports = router 

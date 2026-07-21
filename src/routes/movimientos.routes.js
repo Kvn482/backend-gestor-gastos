@@ -253,6 +253,134 @@ router.delete('/etiquetas/:id', verifyToken, async (req, res) => {
     }
 })
 
+// Eliminar movimiento o transferencia y revertir saldos
+router.delete('/:id', verifyToken, async (req, res) => {
+    const id_usuario = req.user.id
+    const { id } = req.params
+    const client = await pool.connect()
+
+    try {
+        if (!Number.isInteger(Number(id))) {
+            return res.status(400).json({ message: 'Id de movimiento invalido' })
+        }
+
+        await client.query('BEGIN')
+
+        const movimientoResult = await client.query(
+            `SELECT id, id_usuario, id_tipo_movimiento, monto, descripcion, fecha, notas, id_cuenta, id_cuenta_destino, status, created_at
+             FROM movimientos
+             WHERE id = $1 AND id_usuario = $2
+             FOR UPDATE`,
+            [id, id_usuario]
+        )
+
+        if (movimientoResult.rows.length === 0) {
+            await client.query('ROLLBACK')
+            return res.status(404).json({ message: 'Movimiento no encontrado' })
+        }
+
+        const movimiento = movimientoResult.rows[0]
+
+        if (Number(movimiento.status) !== 1) {
+            await client.query('ROLLBACK')
+            return res.status(404).json({ message: 'Movimiento no encontrado o ya eliminado' })
+        }
+
+        const esTransferencia = movimiento.id_cuenta_destino !== null
+
+        if (!esTransferencia) {
+            const cuentaResult = await client.query(
+                `UPDATE cuentas
+                 SET saldo_actual = COALESCE(saldo_actual, 0) - $1::numeric
+                 WHERE id = $2 AND id_usuario = $3`,
+                [movimiento.monto, movimiento.id_cuenta, id_usuario]
+            )
+
+            if (cuentaResult.rowCount === 0) {
+                await client.query('ROLLBACK')
+                return res.status(404).json({ message: 'Cuenta del movimiento no encontrada' })
+            }
+
+            await client.query(
+                `UPDATE movimientos
+                 SET status = 0
+                 WHERE id = $1 AND id_usuario = $2 AND status = 1`,
+                [movimiento.id, id_usuario]
+            )
+
+            await client.query('COMMIT')
+            return res.status(200).json({ message: 'Movimiento eliminado correctamente' })
+        }
+
+        const contraparteResult = await client.query(
+            `SELECT id, id_usuario, id_tipo_movimiento, monto, descripcion, fecha, notas, id_cuenta, id_cuenta_destino, status, created_at
+             FROM movimientos
+             WHERE id <> $1
+             AND id_usuario = $2
+             AND status = 1
+             AND id_cuenta = $3
+             AND id_cuenta_destino = $4
+             AND monto = ($5::numeric * -1)
+             ORDER BY ABS(id - $6::int) ASC
+             LIMIT 1
+             FOR UPDATE`,
+            [
+                movimiento.id,
+                id_usuario,
+                movimiento.id_cuenta_destino,
+                movimiento.id_cuenta,
+                movimiento.monto,
+                movimiento.id
+            ]
+        )
+
+        if (contraparteResult.rows.length === 0) {
+            await client.query('ROLLBACK')
+            return res.status(404).json({ message: 'No se encontro el movimiento contraparte de la transferencia' })
+        }
+
+        const movimientosTransferencia = [movimiento, contraparteResult.rows[0]]
+
+        for (const movimientoTransferencia of movimientosTransferencia) {
+            const cuentaResult = await client.query(
+                `UPDATE cuentas
+                 SET saldo_actual = COALESCE(saldo_actual, 0) - $1::numeric
+                 WHERE id = $2 AND id_usuario = $3`,
+                [movimientoTransferencia.monto, movimientoTransferencia.id_cuenta, id_usuario]
+            )
+
+            if (cuentaResult.rowCount === 0) {
+                await client.query('ROLLBACK')
+                return res.status(404).json({ message: 'Cuenta de transferencia no encontrada' })
+            }
+        }
+
+        const movimientosResult = await client.query(
+            `UPDATE movimientos
+             SET status = 0
+             WHERE id = ANY($1::int[]) AND id_usuario = $2 AND status = 1`,
+            [movimientosTransferencia.map((movimientoTransferencia) => movimientoTransferencia.id), id_usuario]
+        )
+
+        if (movimientosResult.rowCount !== 2) {
+            await client.query('ROLLBACK')
+            return res.status(409).json({ message: 'La transferencia ya fue eliminada o no esta completa' })
+        }
+
+        await client.query('COMMIT')
+        return res.status(200).json({ message: 'Movimiento eliminado correctamente' })
+
+    } catch (error) {
+        await client.query('ROLLBACK')
+        console.error('Error al eliminar movimiento:', error)
+        return res.status(500).json({
+            message: 'Error al eliminar movimiento'
+        })
+    } finally {
+        client.release()
+    }
+})
+
 // Consultar movimientos con base en la cuenta seleccionada
 router.get('/cuenta/:id', verifyToken, async (req, res) => {
 

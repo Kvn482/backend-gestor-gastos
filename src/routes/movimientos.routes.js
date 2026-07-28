@@ -9,6 +9,73 @@ const {
 
 const router = express.Router()
 
+const getQueryValue = (query, keys) => {
+    for (const key of keys) {
+        if (query[key] !== undefined && query[key] !== null && query[key] !== '') {
+            return query[key]
+        }
+    }
+
+    return null
+}
+
+const buildMovimientosFilters = (query, initialParams, options = {}) => {
+    const params = [...initialParams]
+    const filters = []
+    const { includeCuentaFilter = true } = options
+
+    const addFilter = (condition, value) => {
+        params.push(value)
+        filters.push(condition.replace('?', `$${params.length}`))
+    }
+
+    const id_cuenta = getQueryValue(query, ['id_cuenta', 'cuenta'])
+    const id_tipo_movimiento = getQueryValue(query, ['id_tipo_movimiento', 'tipoMovimiento', 'tipo_movimiento', 'tipo'])
+    const id_etiqueta = getQueryValue(query, ['id_etiqueta', 'etiqueta'])
+    const fecha_inicio = getQueryValue(query, ['fecha_inicio', 'fechaInicio', 'fechaDesde', 'desde'])
+    const fecha_fin = getQueryValue(query, ['fecha_fin', 'fechaFin', 'fechaHasta', 'hasta'])
+    const busqueda = getQueryValue(query, ['busqueda', 'descripcion', 'search', 'q'])
+
+    if (includeCuentaFilter && id_cuenta) {
+        addFilter('m.id_cuenta = ?', id_cuenta)
+    }
+
+    if (id_tipo_movimiento) {
+        addFilter('m.id_tipo_movimiento = ?', id_tipo_movimiento)
+    }
+
+    if (id_etiqueta) {
+        addFilter(
+            `EXISTS (
+                SELECT 1
+                FROM movimiento_etiquetas me_filter
+                WHERE me_filter.id_movimiento = m.id
+                AND me_filter.id_etiqueta = ?
+            )`,
+            id_etiqueta
+        )
+    }
+
+    if (fecha_inicio) {
+        addFilter('m.fecha >= ?::date', fecha_inicio)
+    }
+
+    if (fecha_fin) {
+        addFilter('m.fecha <= ?::date', fecha_fin)
+    }
+
+    if (busqueda) {
+        addFilter('(m.descripcion ILIKE ? OR m.notas ILIKE ?)', `%${busqueda}%`)
+        params.push(`%${busqueda}%`)
+        filters[filters.length - 1] = filters[filters.length - 1].replace('?', `$${params.length}`)
+    }
+
+    return {
+        params,
+        where: filters.length > 0 ? `\n                AND ${filters.join('\n                AND ')}` : ''
+    }
+}
+
 // Crear movimiento
 router.post('/', verifyToken, async (req, res) => {
     // req.user.id ahora contiene el UUID del usuario autenticado (ej: 'f47ac10b-...')
@@ -64,6 +131,40 @@ router.post('/', verifyToken, async (req, res) => {
         })
     } finally {
         client.release()
+    }
+})
+
+// Consultar todos los movimientos activos del usuario
+router.get('/', verifyToken, async (req, res) => {
+    const id_usuario = req.user.id
+
+    try {
+        const { where, params } = buildMovimientosFilters(req.query, [id_usuario])
+
+        const result = await pool.query(
+            `SELECT m.id, m.monto, m.descripcion, m.id_tipo_movimiento, tmov.nombre AS tipo_movimiento,
+                COALESCE(array_agg(json_build_object('id', e.id, 'nombre', e.nombre, 'color', e.color)) FILTER (WHERE e.id IS NOT NULL), '{}') AS etiquetas, TO_CHAR(m.fecha, 'YYYY-MM-DD') AS fecha, m.notas, m.id_cuenta, m.id_cuenta_destino, c.nombre AS cuenta, c.tipo AS tipo_cuenta
+                FROM movimientos m
+                JOIN tipos_movimiento tmov ON tmov.id = m.id_tipo_movimiento
+                LEFT JOIN movimiento_etiquetas me ON me.id_movimiento = m.id
+                LEFT JOIN etiquetas e ON e.id = me.id_etiqueta
+                JOIN cuentas c ON c.id = m.id_cuenta
+                WHERE m.id_usuario = $1
+                AND m.status = 1
+                ${where}
+                GROUP BY m.id, tmov.nombre, c.nombre, c.tipo
+                ORDER BY m.created_at DESC
+            `,
+            params
+        )
+
+        res.status(200).json(result.rows)
+
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({
+            message: 'Error al consultar movimientos'
+        })
     }
 })
 
@@ -388,6 +489,10 @@ router.get('/cuenta/:id', verifyToken, async (req, res) => {
     const { id } = req.params
 
     try {
+        const { where, params } = buildMovimientosFilters(req.query, [id_usuario, id], {
+            includeCuentaFilter: false
+        })
+
         const result = await pool.query(
             `SELECT m.id, m.monto, m.descripcion, m.id_tipo_movimiento, tmov.nombre AS tipo_movimiento,
                 COALESCE(array_agg(json_build_object('id', e.id, 'nombre', e.nombre, 'color', e.color)) FILTER (WHERE e.id IS NOT NULL), '{}') AS etiquetas, m.fecha, m.notas, m.id_cuenta, m.id_cuenta_destino, c.nombre AS cuenta, c.tipo AS tipo_cuenta
@@ -399,11 +504,12 @@ router.get('/cuenta/:id', verifyToken, async (req, res) => {
                 WHERE m.id_usuario = $1
                 AND m.id_cuenta = $2
                 AND m.status = 1
+                ${where}
                 GROUP BY m.id, tmov.nombre, c.nombre, c.tipo
                 ORDER BY m.created_at DESC
                 
             `,
-            [id_usuario, id]
+            params
         )
 
         const data = result.rows

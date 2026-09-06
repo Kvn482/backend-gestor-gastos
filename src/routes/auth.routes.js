@@ -399,8 +399,18 @@ router.post('/refresh', async (req, res) => {
         })
 
     } catch (error) {
-        console.error(error)
-        return res.sendStatus(403)
+        if (error.name === 'TokenExpiredError') {
+            return res.status(403).json({
+                message: 'La sesión ha expirado',
+                code: 'REFRESH_TOKEN_EXPIRED'
+            })
+        }
+
+        console.error('Error al renovar el token:', error)
+        return res.status(403).json({
+            message: 'Token de renovación inválido',
+            code: 'INVALID_REFRESH_TOKEN'
+        })
     }
 })
 

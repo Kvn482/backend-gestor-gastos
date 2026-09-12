@@ -83,7 +83,7 @@ const getPaymentCopy = (estado, diasRestantes) => {
         return {
             titulo: 'Pago atrasado',
             detalle: 'Te retrasaste con el pago de esta cuenta.',
-            fecha: diasRestantes === -1 ? 'Vencio ayer' : `Vencio hace ${Math.abs(diasRestantes)} dias`,
+            fecha: diasRestantes === -1 ? 'Venció ayer' : `Venció hace ${Math.abs(diasRestantes)} días`,
             accion: 'Pagar ahora'
         }
     }
@@ -91,16 +91,16 @@ const getPaymentCopy = (estado, diasRestantes) => {
     if (estado === 'vence-hoy') {
         return {
             titulo: 'Hoy vence tu pago',
-            detalle: 'Liquida o cubre el minimo para evitar intereses.',
+            detalle: 'Liquida o cubre el mínimo para evitar intereses.',
             fecha: 'Hoy',
             accion: 'Pagar cuenta'
         }
     }
 
     return {
-        titulo: 'Pago proximo',
-        detalle: 'Tienes un pago pendiente por cubrir en los proximos dias.',
-        fecha: diasRestantes === 1 ? 'Manana' : `En ${diasRestantes} dias`,
+        titulo: 'Pago próximo',
+        detalle: 'Tienes un pago pendiente por cubrir en los próximos días.',
+        fecha: diasRestantes === 1 ? 'Mañana' : `En ${diasRestantes} días`,
         accion: 'Pagar cuenta'
     }
 }
@@ -152,7 +152,7 @@ const buildCreditAlerts = async (pool, idUsuario) => {
             const pagosPeriodo = Number(pagoPeriodoResult.rows[0].pagos_periodo ?? 0)
             const deudaCorte = Math.max(Math.abs(Math.min(saldoCorte, 0)), 0)
             const montoPendiente = Math.max(deudaCorte - pagosPeriodo, 0)
-            const pagadaEnPeriodo = deudaCorte === 0 || montoPendiente <= 0
+            const pagadaEnPeriodo = deudaCorte === 0 || pagosPeriodo > 0 || montoPendiente <= 0
 
             if (!pagadaEnPeriodo && diasParaPago <= PROXIMO_PAGO_DIAS) {
                 const estado = diasParaPago < 0
@@ -168,6 +168,7 @@ const buildCreditAlerts = async (pool, idUsuario) => {
                     titulo: copy.titulo,
                     detalle: copy.detalle,
                     fecha: copy.fecha,
+                    fechaIso: formatDateOnly(dueDate),
                     monto: formatMonto(montoPendiente),
                     estado,
                     accion: copy.accion
@@ -179,9 +180,10 @@ const buildCreditAlerts = async (pool, idUsuario) => {
             alertas.push({
                 cuentaId: cuenta.id,
                 cuenta: cuenta.nombre,
-                titulo: 'Hoy es tu dia de corte',
+                titulo: 'Hoy es tu día de corte',
                 detalle: 'Las compras nuevas pueden pasar al siguiente periodo.',
                 fecha: 'Corte hoy',
+                fechaIso: formatDateOnly(nextCutoffDate),
                 estado: 'corte-hoy',
                 accion: 'Ver cuenta'
             })
@@ -189,9 +191,10 @@ const buildCreditAlerts = async (pool, idUsuario) => {
             alertas.push({
                 cuentaId: cuenta.id,
                 cuenta: cuenta.nombre,
-                titulo: 'Manana es tu dia de corte',
+                titulo: 'Mañana es tu día de corte',
                 detalle: 'Buen momento para revisar cargos pendientes.',
-                fecha: 'Corte manana',
+                fecha: 'Corte mañana',
+                fechaIso: formatDateOnly(nextCutoffDate),
                 estado: 'corte-manana',
                 accion: 'Revisar'
             })
@@ -199,6 +202,9 @@ const buildCreditAlerts = async (pool, idUsuario) => {
     }
 
     return alertas.sort((a, b) => {
+        const diffFecha = new Date(a.fechaIso).getTime() - new Date(b.fechaIso).getTime()
+        if (diffFecha !== 0) return diffFecha
+
         const prioridad = PRIORIDAD_ALERTA[a.estado] - PRIORIDAD_ALERTA[b.estado]
         if (prioridad !== 0) return prioridad
 

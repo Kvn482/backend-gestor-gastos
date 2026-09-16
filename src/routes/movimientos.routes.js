@@ -208,8 +208,10 @@ router.get('/etiquetas', verifyToken, async (req, res) => {
 
     try {
         const result = await pool.query(
-            `SELECT id, id_usuario, nombre, color FROM etiquetas
+            `SELECT id, id_usuario, nombre, color, COALESCE(tipo, 'gasto') AS tipo, COALESCE(icono, 'tag') AS icono 
+                FROM etiquetas
                 WHERE status = 1 AND (id_usuario IS NULL OR id_usuario = $1)
+                ORDER BY id_usuario NULLS FIRST, nombre ASC
             `,
             [id_usuario]
         )
@@ -289,7 +291,7 @@ router.post('/etiquetas', verifyToken, async (req, res) => {
     const id_usuario = req.user.id
 
     try {
-        const { nombre, color } = req.body
+        const { nombre, color, tipo = 'gasto', icono = 'tag' } = req.body
 
         if (!nombre || nombre.trim() === '') {
             return res.status(400).json({ message: 'El nombre es requerido' })
@@ -301,7 +303,7 @@ router.post('/etiquetas', verifyToken, async (req, res) => {
         }
 
         const existing = await pool.query(
-            'SELECT id FROM etiquetas WHERE nombre = $1 AND id_usuario = $2',
+            'SELECT id FROM etiquetas WHERE nombre = $1 AND id_usuario = $2 AND status = 1',
             [nombre.trim(), id_usuario]
         )
 
@@ -309,10 +311,14 @@ router.post('/etiquetas', verifyToken, async (req, res) => {
             return res.status(409).json({ message: 'Ya existe una etiqueta con ese nombre' })
         }
 
+        const tipoValido = tipo === 'ingreso' ? 'ingreso' : 'gasto'
+        const iconoValido = typeof icono === 'string' && icono.trim() ? icono.trim() : 'tag'
+
         const result = await pool.query(
-            `INSERT INTO etiquetas (nombre, color, id_usuario, status) VALUES ($1, $2, $3, 1)
-             RETURNING id, nombre, color, id_usuario`,
-            [nombre.trim(), color, id_usuario]
+            `INSERT INTO etiquetas (nombre, color, id_usuario, tipo, icono, status) 
+             VALUES ($1, $2, $3, $4, $5, 1)
+             RETURNING id, nombre, color, id_usuario, tipo, icono`,
+            [nombre.trim(), color, id_usuario, tipoValido, iconoValido]
         )
 
         res.status(201).json(result.rows[0])
@@ -320,6 +326,65 @@ router.post('/etiquetas', verifyToken, async (req, res) => {
     } catch (error) {
         console.error(error)
         res.status(500).json({ message: 'Error al crear etiqueta' })
+    }
+})
+
+// Actualizar etiqueta del usuario
+router.patch('/etiquetas/:id', verifyToken, async (req, res) => {
+    const id_usuario = req.user.id
+    const { id } = req.params
+
+    try {
+        const { nombre, color, tipo = 'gasto', icono = 'tag' } = req.body
+
+        if (!nombre || nombre.trim() === '') {
+            return res.status(400).json({ message: 'El nombre es requerido' })
+        }
+
+        const hexColorRegex = /^#[0-9A-Fa-f]{6}$/
+        if (!color || !hexColorRegex.test(color)) {
+            return res.status(400).json({ message: 'El color debe ser un hexadecimal válido (ej. #6366f1)' })
+        }
+
+        const check = await pool.query(
+            'SELECT id, id_usuario FROM etiquetas WHERE id = $1',
+            [id]
+        )
+
+        if (check.rows.length === 0) {
+            return res.status(404).json({ message: 'Etiqueta no encontrada' })
+        }
+
+        const etiqueta = check.rows[0]
+        if (etiqueta.id_usuario === null || etiqueta.id_usuario !== id_usuario) {
+            return res.status(403).json({ message: 'No tienes permiso para editar esta etiqueta' })
+        }
+
+        const existing = await pool.query(
+            'SELECT id FROM etiquetas WHERE nombre = $1 AND id_usuario = $2 AND id != $3 AND status = 1',
+            [nombre.trim(), id_usuario, id]
+        )
+
+        if (existing.rows.length > 0) {
+            return res.status(409).json({ message: 'Ya existe otra etiqueta con ese nombre' })
+        }
+
+        const tipoValido = tipo === 'ingreso' ? 'ingreso' : 'gasto'
+        const iconoValido = typeof icono === 'string' && icono.trim() ? icono.trim() : 'tag'
+
+        const result = await pool.query(
+            `UPDATE etiquetas 
+             SET nombre = $1, color = $2, tipo = $3, icono = $4
+             WHERE id = $5 AND id_usuario = $6
+             RETURNING id, nombre, color, id_usuario, tipo, icono`,
+            [nombre.trim(), color, tipoValido, iconoValido, id, id_usuario]
+        )
+
+        res.status(200).json(result.rows[0])
+
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ message: 'Error al actualizar etiqueta' })
     }
 })
 

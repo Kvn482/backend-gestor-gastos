@@ -115,9 +115,12 @@ router.post('/', verifyToken, async (req, res) => {
             })
         }
 
-        // La inserción de etiquetas asociadas se mantiene igual, 
-        // ya que id_movimiento sigue siendo un entero SERIAL en tu esquema.
-        await insertMovimientoEtiquetas(client, id_movimiento, etiquetas)
+        // La inserción de etiquetas asociadas: si viene vacío se asigna por defecto Otros gastos (26) u Otros ingresos (27)
+        const etiquetasFinales = (Array.isArray(etiquetas) && etiquetas.length > 0)
+            ? etiquetas
+            : (Number(tipoMovimiento) === 1 ? [27] : [26])
+
+        await insertMovimientoEtiquetas(client, id_movimiento, etiquetasFinales)
 
         await client.query('COMMIT')
 
@@ -143,7 +146,17 @@ router.get('/', verifyToken, async (req, res) => {
 
         const result = await pool.query(
             `SELECT m.id, m.monto, m.descripcion, m.id_tipo_movimiento, tmov.nombre AS tipo_movimiento,
-                COALESCE(array_agg(json_build_object('id', e.id, 'nombre', e.nombre, 'color', e.color)) FILTER (WHERE e.id IS NOT NULL), '{}') AS etiquetas, TO_CHAR(m.fecha, 'YYYY-MM-DD') AS fecha, m.notas, m.id_cuenta, m.id_cuenta_destino, c.nombre AS cuenta, c.tipo AS tipo_cuenta
+                COALESCE(
+                    array_agg(
+                        json_build_object(
+                            'id', e.id, 
+                            'nombre', e.nombre, 
+                            'color', e.color, 
+                            'icono', COALESCE(e.icono, 'tag')
+                        )
+                    ) FILTER (WHERE e.id IS NOT NULL),
+                    '{}'::json[]
+                ) AS etiquetas, TO_CHAR(m.fecha, 'YYYY-MM-DD') AS fecha, m.notas, m.id_cuenta, m.id_cuenta_destino, c.nombre AS cuenta, c.tipo AS tipo_cuenta
                 FROM movimientos m
                 JOIN tipos_movimiento tmov ON tmov.id = m.id_tipo_movimiento
                 LEFT JOIN movimiento_etiquetas me ON me.id_movimiento = m.id
@@ -258,8 +271,29 @@ router.get('/ultimos-movimientos', verifyToken, async (req, res) => {
 
     try {
         const result = await pool.query(
-            `SELECT m.id, m.monto, m.descripcion, m.id_tipo_movimiento, tmov.nombre AS tipo_movimiento,
-                COALESCE(array_agg(json_build_object('id', e.id, 'nombre', e.nombre, 'color', e.color)) FILTER (WHERE e.id IS NOT NULL), '{}') AS etiquetas, m.fecha, m.notas, m.id_cuenta, m.id_cuenta_destino, c.nombre AS cuenta, c.tipo AS tipo_cuenta
+            `SELECT 
+                m.id, 
+                m.monto, 
+                m.descripcion, 
+                m.id_tipo_movimiento, 
+                tmov.nombre AS tipo_movimiento,
+                COALESCE(
+                    array_agg(
+                        json_build_object(
+                            'id', e.id, 
+                            'nombre', e.nombre, 
+                            'color', e.color, 
+                            'icono', COALESCE(e.icono, 'tag')
+                        )
+                    ) FILTER (WHERE e.id IS NOT NULL), 
+                    '{}'::json[]
+                ) AS etiquetas, 
+                m.fecha, 
+                m.notas, 
+                m.id_cuenta, 
+                m.id_cuenta_destino, 
+                c.nombre AS cuenta, 
+                c.tipo AS tipo_cuenta
                 FROM movimientos m
                 JOIN tipos_movimiento tmov ON tmov.id = m.id_tipo_movimiento
                 LEFT JOIN movimiento_etiquetas me ON me.id_movimiento = m.id
@@ -269,7 +303,7 @@ router.get('/ultimos-movimientos', verifyToken, async (req, res) => {
                 AND m.status = 1
                 GROUP BY m.id, tmov.nombre, c.nombre, c.tipo
                 ORDER BY m.created_at DESC
-                LIMIT 5
+                LIMIT 15
             `,
             [id_usuario]
         )
@@ -560,7 +594,17 @@ router.get('/cuenta/:id', verifyToken, async (req, res) => {
 
         const result = await pool.query(
             `SELECT m.id, m.monto, m.descripcion, m.id_tipo_movimiento, tmov.nombre AS tipo_movimiento,
-                COALESCE(array_agg(json_build_object('id', e.id, 'nombre', e.nombre, 'color', e.color)) FILTER (WHERE e.id IS NOT NULL), '{}') AS etiquetas, m.fecha, m.notas, m.id_cuenta, m.id_cuenta_destino, c.nombre AS cuenta, c.tipo AS tipo_cuenta
+                COALESCE(
+                    array_agg(
+                        json_build_object(
+                            'id', e.id, 
+                            'nombre', e.nombre, 
+                            'color', e.color, 
+                            'icono', COALESCE(e.icono, 'tag')
+                        )
+                    ) FILTER (WHERE e.id IS NOT NULL),
+                    '{}'::json[]
+                ) AS etiquetas, m.fecha, m.notas, m.id_cuenta, m.id_cuenta_destino, c.nombre AS cuenta, c.tipo AS tipo_cuenta
                 FROM movimientos m
                 JOIN tipos_movimiento tmov ON tmov.id = m.id_tipo_movimiento
                 LEFT JOIN movimiento_etiquetas me ON me.id_movimiento = m.id
@@ -675,7 +719,11 @@ router.patch('/edit/:id', verifyToken, async (req, res) => {
             [montoMovimiento, cuenta, id_usuario]
         )
 
-        await insertMovimientoEtiquetas(client, idNuevoMovimiento, etiquetas)
+        const etiquetasFinales = (Array.isArray(etiquetas) && etiquetas.length > 0)
+            ? etiquetas
+            : (Number(tipoMovimiento) === 1 ? [27] : [26])
+
+        await insertMovimientoEtiquetas(client, idNuevoMovimiento, etiquetasFinales)
 
         await client.query('COMMIT')
 

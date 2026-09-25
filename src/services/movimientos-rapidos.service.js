@@ -10,7 +10,7 @@ const ensureTableExists = async (pool) => {
                 nombre VARCHAR(100) NOT NULL,
                 id_tipo_movimiento INT NOT NULL REFERENCES tipos_movimiento(id),
                 monto NUMERIC(12, 2) NOT NULL,
-                id_cuenta INT REFERENCES cuentas(id) ON DELETE SET NULL,
+                id_cuenta UUID REFERENCES cuentas(id) ON DELETE SET NULL,
                 id_etiqueta INT REFERENCES etiquetas(id) ON DELETE SET NULL,
                 icono VARCHAR(50) DEFAULT 'tag',
                 color VARCHAR(20) DEFAULT '#6366f1',
@@ -77,7 +77,7 @@ const createOrUpsertMovimientoRapido = async (pool, id_usuario, data) => {
         throw new Error('El monto debe ser mayor a 0');
     }
 
-    const cuentaValida = cuentaId && !isNaN(Number(cuentaId)) ? Number(cuentaId) : null;
+    const cuentaValida = cuentaId && String(cuentaId).trim() !== '' ? String(cuentaId).trim() : null;
     const categoriaValida = categoriaId && !isNaN(Number(categoriaId)) ? Number(categoriaId) : null;
 
     // Verificar si ya existe con el mismo nombre para este usuario
@@ -147,7 +147,7 @@ const updateMovimientoRapido = async (pool, id_usuario, id, data) => {
     }
     if (cuentaId !== undefined) {
         campos.push(`id_cuenta = $${contador++}`);
-        valores.push(cuentaId ? Number(cuentaId) : null);
+        valores.push(cuentaId && String(cuentaId).trim() !== '' ? String(cuentaId).trim() : null);
     }
     if (categoriaId !== undefined) {
         campos.push(`id_etiqueta = $${contador++}`);

@@ -156,16 +156,17 @@ router.get('/', verifyToken, async (req, res) => {
                         )
                     ) FILTER (WHERE e.id IS NOT NULL),
                     '{}'::json[]
-                ) AS etiquetas, TO_CHAR(m.fecha, 'YYYY-MM-DD') AS fecha, m.notas, m.id_cuenta, m.id_cuenta_destino, c.nombre AS cuenta, c.tipo AS tipo_cuenta
+                ) AS etiquetas, TO_CHAR(m.fecha, 'YYYY-MM-DD') AS fecha, m.notas, m.id_cuenta, m.id_cuenta_destino, c.nombre AS cuenta, c.tipo AS tipo_cuenta, cd.nombre AS cuenta_destino
                 FROM movimientos m
                 JOIN tipos_movimiento tmov ON tmov.id = m.id_tipo_movimiento
                 LEFT JOIN movimiento_etiquetas me ON me.id_movimiento = m.id
                 LEFT JOIN etiquetas e ON e.id = me.id_etiqueta
                 JOIN cuentas c ON c.id = m.id_cuenta
+                LEFT JOIN cuentas cd ON cd.id = m.id_cuenta_destino
                 WHERE m.id_usuario = $1
                 AND m.status = 1
                 ${where}
-                GROUP BY m.id, tmov.nombre, c.nombre, c.tipo
+                GROUP BY m.id, tmov.nombre, c.nombre, c.tipo, cd.nombre
                 ORDER BY m.created_at DESC
             `,
             params
@@ -293,15 +294,17 @@ router.get('/ultimos-movimientos', verifyToken, async (req, res) => {
                 m.id_cuenta, 
                 m.id_cuenta_destino, 
                 c.nombre AS cuenta, 
-                c.tipo AS tipo_cuenta
+                c.tipo AS tipo_cuenta,
+                cd.nombre AS cuenta_destino
                 FROM movimientos m
                 JOIN tipos_movimiento tmov ON tmov.id = m.id_tipo_movimiento
                 LEFT JOIN movimiento_etiquetas me ON me.id_movimiento = m.id
                 LEFT JOIN etiquetas e ON e.id = me.id_etiqueta
                 JOIN cuentas c ON c.id = m.id_cuenta
+                LEFT JOIN cuentas cd ON cd.id = m.id_cuenta_destino
                 WHERE m.id_usuario = $1
                 AND m.status = 1
-                GROUP BY m.id, tmov.nombre, c.nombre, c.tipo
+                GROUP BY m.id, tmov.nombre, c.nombre, c.tipo, cd.nombre
                 ORDER BY m.created_at DESC
                 LIMIT 15
             `,
@@ -604,17 +607,18 @@ router.get('/cuenta/:id', verifyToken, async (req, res) => {
                         )
                     ) FILTER (WHERE e.id IS NOT NULL),
                     '{}'::json[]
-                ) AS etiquetas, m.fecha, m.notas, m.id_cuenta, m.id_cuenta_destino, c.nombre AS cuenta, c.tipo AS tipo_cuenta
+                ) AS etiquetas, m.fecha, m.notas, m.id_cuenta, m.id_cuenta_destino, c.nombre AS cuenta, c.tipo AS tipo_cuenta, cd.nombre AS cuenta_destino
                 FROM movimientos m
                 JOIN tipos_movimiento tmov ON tmov.id = m.id_tipo_movimiento
                 LEFT JOIN movimiento_etiquetas me ON me.id_movimiento = m.id
                 LEFT JOIN etiquetas e ON e.id = me.id_etiqueta
                 JOIN cuentas c ON c.id = m.id_cuenta
+                LEFT JOIN cuentas cd ON cd.id = m.id_cuenta_destino
                 WHERE m.id_usuario = $1
                 AND m.id_cuenta = $2
                 AND m.status = 1
                 ${where}
-                GROUP BY m.id, tmov.nombre, c.nombre, c.tipo
+                GROUP BY m.id, tmov.nombre, c.nombre, c.tipo, cd.nombre
                 ORDER BY m.created_at DESC
                 
             `,

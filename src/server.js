@@ -11,6 +11,7 @@ const movRoutes = require('./routes/movimientos.routes');
 const cuentasRoutes = require('./routes/cuentas.routes');
 const analisisRoutes = require('./routes/analisis.routes');
 const alertasCreditosRoutes = require('./routes/alertas-creditos.routes');
+const movimientosRapidosRoutes = require('./routes/movimientos-rapidos.routes');
 
 const app = express();
 
@@ -34,6 +35,7 @@ app.use('/api/movimientos', movRoutes);
 app.use('/api/cuentas', cuentasRoutes);
 app.use('/api/analisis', analisisRoutes);
 app.use('/api/alertas-creditos', alertasCreditosRoutes);
+app.use('/api/movimientos-rapidos', movimientosRapidosRoutes);
 
 // 5. Inicialización del servidor
 const PORT = process.env.PORT || 3000;
